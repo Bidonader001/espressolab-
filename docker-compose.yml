@@ -1,0 +1,40 @@
+# Every value marked :? must be provided in a .env file next to this file.
+# See .env.example for how to generate each one.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: espressolab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: espressolab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U espressolab -d espressolab"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg://espressolab:${POSTGRES_PASSWORD}@db:5432/espressolab
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      FERNET_KEY: ${FERNET_KEY:?Set FERNET_KEY in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env, for example https://attendance.example.com}
+      ALLOW_SIMULATOR: "0"
+      ENABLE_SCHEDULER: "1"
+    ports:
+      - "8000:8000"
+    volumes:
+      - appdata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata:
+  appdata:
