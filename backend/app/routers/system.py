@@ -105,7 +105,7 @@ def list_audit(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
-    if user.role == "viewer":
+    if user.role not in {"admin", "supervisor"}:
         raise HTTPException(status_code=403, detail="You do not have permission for this action")
     stmt = select(AuditLog).order_by(AuditLog.id.desc())
     total = db.scalar(select(func.count()).select_from(AuditLog)) or 0

@@ -39,6 +39,13 @@ def current_user(
     return user
 
 
+def require_reader(user: User = Depends(current_user)) -> User:
+    """Dashboard, employees, devices and the rest of the app, not including report exports."""
+    if user.role not in {"admin", "supervisor", "viewer"}:
+        raise HTTPException(status_code=403, detail="You do not have permission for this action")
+    return user
+
+
 def require_writer(user: User = Depends(current_user)) -> User:
     if user.role not in {"admin", "supervisor"}:
         raise HTTPException(status_code=403, detail="You do not have permission for this action")

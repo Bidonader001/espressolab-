@@ -31,7 +31,7 @@ export function UsersPage() {
 
   return (
     <>
-      <div className="top"><div><h1>Permissions</h1><p className="lede">Viewers can read. Supervisors can maintain attendance data. Administrators manage users and settings.</p></div></div>
+      <div className="top"><div><h1>Permissions</h1><p className="lede">Viewers can read. HR can preview and download reports only. Supervisors can maintain attendance data. Administrators manage users and settings.</p></div></div>
       {error ? <p className="error">{error}</p> : null}
       <section className="panel">
         <table>
@@ -43,7 +43,7 @@ export function UsersPage() {
         <label className="field">Username<input name="username" required minLength={2} /></label>
         <label className="field">Password<input name="password" type="password" required minLength={8} /></label>
         <label className="field">Role
-          <select name="role" defaultValue="viewer"><option>viewer</option><option>supervisor</option><option>admin</option></select>
+          <select name="role" defaultValue="viewer"><option>viewer</option><option>hr</option><option>supervisor</option><option>admin</option></select>
         </label>
         <button className="btn" type="submit">Create user</button>
       </form>

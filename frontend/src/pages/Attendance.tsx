@@ -11,9 +11,18 @@ type Row = {
   hours_text?: string;
   status: string;
   branch: string;
+  check_in_branch?: string;
+  check_out_branch?: string;
   department: string;
   shift: string;
 };
+
+function punchLabel(time: string, branch: string, incomplete = false) {
+  if (incomplete) return `No check-out${branch ? ` ${branch}` : ""}`;
+  if (!time) return "—";
+  return branch ? `${time} ${branch}` : time;
+}
+
 
 export function AttendancePage() {
   const [items, setItems] = useState<Row[]>([]);
@@ -71,7 +80,7 @@ export function AttendancePage() {
       <section className="panel" style={{ marginTop: 14 }}>
         <table>
           <thead>
-            <tr><th>Employee ID</th><th>Name</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Hours</th><th>Status</th><th>Branch</th></tr>
+            <tr><th>Employee ID</th><th>Name</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>Hours</th><th>Status</th></tr>
           </thead>
           <tbody>
             {items.map((row) => (
@@ -79,11 +88,10 @@ export function AttendancePage() {
                 <td>{row.employee_id}</td>
                 <td>{row.name}</td>
                 <td>{row.date}</td>
-                <td>{row.check_in || "—"}</td>
-                <td>{row.status === "Incomplete" ? <span className="no-checkout">No check-out</span> : row.check_out || "—"}</td>
+                <td>{punchLabel(row.check_in, row.check_in_branch || row.branch)}</td>
+                <td>{row.status === "Incomplete" ? <span className="no-checkout">{punchLabel("", row.check_out_branch || row.check_in_branch || row.branch, true)}</span> : punchLabel(row.check_out, row.check_out_branch || row.branch)}</td>
                 <td>{row.hours_text || "—"}</td>
                 <td><span className={`badge ${row.status.toLowerCase().replace(" ", "")}`}>{row.status}</span></td>
-                <td>{row.branch}</td>
               </tr>
             ))}
           </tbody>

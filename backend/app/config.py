@@ -58,6 +58,39 @@ def cors_origins() -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
+def force_https() -> bool:
+    raw = os.environ.get("FORCE_HTTPS")
+    if raw is None:
+        return is_production()
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def https_port() -> int:
+    try:
+        return max(1, int(os.environ.get("HTTPS_PORT", "8443")))
+    except ValueError:
+        return 8443
+
+
+def http_port() -> int:
+    try:
+        return max(1, int(os.environ.get("HTTP_PORT", "8080")))
+    except ValueError:
+        return 8080
+
+
+def tls_hosts() -> list[str]:
+    raw = os.environ.get("TLS_HOSTS", "")
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def cert_dir() -> Path:
+    raw = os.environ.get("TLS_CERT_DIR", "")
+    if raw.strip():
+        return Path(raw.strip())
+    return DATA_DIR / "certs"
+
+
 KNOWN_DEFAULT_PASSWORDS = {"change-me-now", "ChangeMe-EspressoLab-2026"}
 KNOWN_DEFAULT_SECRETS = {"espressolab-dev-secret-change-me", "change-me", ""}
 
@@ -83,6 +116,9 @@ def production_problems() -> list[str]:
         problems.append("ALLOW_SIMULATOR must be 0 so simulated data cannot appear next to real attendance")
     if "*" in cors_origins():
         problems.append("CORS_ORIGINS must list the real site address, not *")
+    insecure = [origin for origin in cors_origins() if origin and not origin.startswith("https://")]
+    if insecure:
+        problems.append("CORS_ORIGINS must use https:// addresses")
     return problems
 
 

@@ -20,7 +20,25 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. On a fresh database the first administrator is `admin` with the password from `ADMIN_PASSWORD`, or `change-me-now` when no `.env` exists. A banner stays on every page until that password is changed in Settings.
+Open http://127.0.0.1:5173 for day-to-day coding. On a fresh database the first administrator is `admin` with the password from `ADMIN_PASSWORD`, or `change-me-now` when no `.env` exists. A banner stays on every page until that password is changed in Settings.
+
+To serve the built app over HTTPS on this machine (office server, no Docker):
+
+```text
+cd frontend
+npm install
+npm run build
+cd ..\backend
+py -3 -m app.serve
+```
+
+Open https://127.0.0.1:8443. HTTP on port 8080 redirects there, except `/iclock` which stays on HTTP so ZKTeco push terminals can still post logs. The first visit shows a certificate warning until the local CA is trusted:
+
+```text
+certutil -addstore -user Root ..\data\certs\ca.pem
+```
+
+Add extra names or LAN IPs to `TLS_HOSTS` in `.env` (comma separated) if people will open `https://attendance.local` or `https://192.168.x.x`. Set `HTTPS_PORT=443` and `HTTP_PORT=80` when the process may bind those ports.
 
 Copy `.env.example` to `.env` in this directory. SQLite is the default database file at `data/espressolab.db`. Keep that file outside OneDrive and other synced folders, because sync clients lock it while the API writes. Set `DATABASE_URL` to move it, or use PostgreSQL with a `postgresql+psycopg://` URL.
 
@@ -47,18 +65,18 @@ User ids are matched by their text across terminals. Two different people who sh
 
 ### How hours are calculated
 
-Terminals do not reliably say whether a punch is an entry or an exit, so punches are paired in time order. Stored punches are never changed. Sessions are rebuilt from them.
+Terminals do not reliably say whether a punch is an entry or an exit, so each day uses the first punch and the last punch. Stored punches are never changed. Sessions are rebuilt from them.
 
 1. A repeat tap within 2 minutes of the previous counted tap is ignored. Terminals often record one tap twice, seconds apart. The ignored record stays stored. Setting: "Ignore repeat taps within".
-2. If someone taps again with the same in/out flag within 30 minutes of the last counted tap, the later tap is ignored (check-in at 09:05, check-in again at 09:07, check-out at 17:14 is one day from 09:05 to 17:14). The flag is only a hint for this. Some terminals label punches by time of day, so it never decides who is arriving. Setting: "Treat a second check-in or check-out as a re-tap within". Use 0 to turn it off.
-3. A punch opens a session and the next punch closes it. If the next punch is more than 12 hours later, the session stays open (a missing check-out) and the next punch starts a new one, so one forgotten punch cannot flip every later pair. Setting: "Longest single session".
+2. On each calendar day the earliest remaining punch is the check-in and the latest is the check-out. Punches between them stay stored and are not used. A day with only one punch stays open.
+3. When a day has only a check-in, the first punch of the next day closes it if the gap is within the longest session. That keeps a shift across midnight on the check-in day. Setting: "Longest single session".
 4. A session can cross midnight and belongs to the day of its check-in.
-5. Working time is check-out minus check-in, measured in whole minutes (30 seconds and over round up) and shown as hours:minutes, so 09:46:28 to 17:29:53 is `7:43`, not `7.72`. A day is the sum of its sessions, and a person's total is the sum of the daily rows, so every total reconciles with the rows above it. A lunch break between two sessions is not counted. Excel files hold a real duration (formatted `[h]:mm`) that sums correctly. The API also carries `hours` as a decimal and `hours_minutes` as the exact minute count.
+5. Working time is the last check-out minus the first check-in, measured in whole minutes (30 seconds and over round up) and shown as hours:minutes, so 09:46:28 to 17:29:53 is `7:43`, not `7.72`. Those are the two times on the row, and a person's total is the sum of the daily rows, so every total reconciles with the rows above it. Excel files hold a real duration (formatted `[h]:mm`) that sums correctly. The API also carries `hours` as a decimal and `hours_minutes` as the exact minute count.
 6. A day with an unclosed session is `Incomplete`. It shows no check-out and no hours, even when part of the day has a closed session, and it adds nothing to the person's total. Only complete days are counted. Incomplete means a check-in without a check-out. Every report lists these days in amber with "No check-out" in the check-out cell, and the employee summary has an "Incomplete days" column so they can be found and fixed.
 
 Days off (Friday and Saturday with the default Sun-Thu week, or each person's own working days) are listed in light blue as `Weekend` rows in the daily and monthly reports. They are never counted as absences. If someone punched on a day off, the day is a normal row with its date highlighted.
 
-Reports follow the branch of the terminal. Every session belongs to the branch of the device that recorded its check-in (set the branch on the device), falling back to the employee's own branch when the device has none. The Branch column shows that per day, the branch filter lists only people who punched there with only the sessions recorded there, and a person's summary row, absent days, working days and grace period use the branch where most of their days were worked. A day worked at another branch is never marked absent. Changing a device's branch applies to reports immediately.
+Reports follow the branch of the terminal. Every session belongs to the branch of the device that recorded its check-in (set the branch on the device), falling back to the employee's own branch when the device has none. Check-in and check-out each show the branch of the terminal that recorded that punch beside the time, the branch filter lists only people who punched there with only the sessions recorded there, and a person's summary row, absent days, working days and grace period use the branch where most of their days were worked. A day worked at another branch is never marked absent. Changing a device's branch applies to reports immediately.
 
 Branch working hours (from and to) are no longer in the Branches form. The Branches form clears them when saved. Hours come from a shift, the branch's default shift, or the company hours.
 
@@ -82,9 +100,8 @@ A cloud server cannot open a connection to a private address such as `192.168.1.
 
 Reports use the same attendance calculation as the dashboard. Compared with BunkerAtt `core/exports.py` on the October 2026 fixture in `backend/tests/test_bunkeratt_compare.py`:
 
-- CSV header and every cell matched.
-- Excel sheet `Attendance Details` matched the header row and the first seven columns of every data row: Employee ID, Name, Date, Check-in, Check-out, Hours, Status.
-- Employee Summary matched through Total hours.
+- CSV and Excel attendance rows match BunkerAtt on Employee ID, Name, Date, Check-in, Check-out, Hours and Status. This app writes the branch of the terminal beside each check-in and check-out (and beside No check-out on incomplete days).
+- Employee Summary matched through Total hours. The employee name has the home branch written beside it, and incomplete days include that branch when the count is not zero.
 
 Two layout choices differ from BunkerAtt on purpose. Rows are ordered by name, then date, where BunkerAtt orders by date. Dates carry the day name, as in `28/10/2026 Wed`, where BunkerAtt writes `28/10/2026`. The comparison test applies those two changes to BunkerAtt's output before it compares cells.
 
@@ -100,7 +117,7 @@ Set `ENVIRONMENT=production`. The API then refuses to start until all of these a
 - `FERNET_KEY` is set, so stored device keys survive a `SECRET_KEY` change.
 - `ADMIN_PASSWORD` is not a published default.
 - `ALLOW_SIMULATOR=0`.
-- `CORS_ORIGINS` lists the real site address.
+- `CORS_ORIGINS` lists the real `https://` site address.
 
 With Docker:
 
@@ -109,7 +126,7 @@ copy .env.example .env      (then fill in every REQUIRED value)
 docker compose up --build -d
 ```
 
-The compose file starts PostgreSQL (not published on the host) and the API on port 8000, with health checks on both. Put a reverse proxy with HTTPS in front of port 8000. The image and compose file have not been built or run on this machine, and PostgreSQL has not been exercised against the full test suite. Run the checklist below on the target server before the first real sync.
+The compose file starts PostgreSQL (not published on the host), the API on an internal port, and Caddy on 80/443. Caddy terminates TLS, redirects HTTP to HTTPS, and leaves `/iclock` on HTTP for push terminals. Open https://SERVER. The image, compose file, and PostgreSQL have not been built or run on this machine against the full test suite. Run the checklist below on the target server before the first real sync. Caddy uses a local certificate (`local_certs`); for a public hostname with Let's Encrypt, replace `deploy/Caddyfile` with a site block for that name and remove `local_certs`.
 
 Monitoring: `GET /api/v1/health` reports the process is up. `GET /api/v1/health/ready` also checks the database and returns 503 when it cannot answer.
 
@@ -117,14 +134,14 @@ Backups: Settings has a backup action. With SQLite it copies the database file, 
 
 ### First-day checklist
 
-1. Sign in, change the administrator password, and create named accounts. Roles are admin, supervisor (operations), and viewer (read and export).
+1. Sign in, change the administrator password, and create named accounts. Roles are admin, supervisor (operations), viewer (read and export), and hr (preview and download reports only).
 2. Add one terminal, press Test connection, then Sync now. Confirm the punch count and date range on its device page match the terminal's own report.
 3. Check Branches: working days, grace minutes, each branch's shifts, holidays and approved leave (there is no separate Rules and shifts page; the old address redirects here). Changing a rule recalculates sessions and keeps every stored punch.
 4. Download one monthly export and compare a few employees with the terminal.
 
 ## Security
 
-Passwords are hashed with bcrypt, sessions use signed tokens that expire after `TOKEN_HOURS`, repeated failed sign-ins lock the account for a while, and every route checks the role on the server. Device communication keys are encrypted at rest and never returned by the API. Responses carry `nosniff`, frame denial, and a content security policy, and API responses are not cached. Account, device, rule, and export actions are written to the audit log.
+Passwords are hashed with bcrypt, sessions use signed tokens that expire after `TOKEN_HOURS`, repeated failed sign-ins lock the account for a while, and every route checks the role on the server. Device communication keys are encrypted at rest and never returned by the API. Responses carry `nosniff`, frame denial, and a content security policy, and API responses are not cached. HTTPS responses add HSTS. Account, device, rule, and export actions are written to the audit log.
 
 ## Tests
 

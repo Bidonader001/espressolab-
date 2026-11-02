@@ -36,7 +36,7 @@ def world(client, auth):
         [{"user_id": "30", "name": "Shared Sam"}, {"user_id": "31", "name": "Kay Kitchen"}],
         _punches("30", "2026-10-05") + _punches("30", "2026-10-06") + _punches("31", "2026-10-01"),
     )
-    return {"kitchen": kitchen, "hq": hq, "kitchen_device": kitchen_device}
+    return {"kitchen": kitchen, "hq": hq, "kitchen_device": kitchen_device, "hq_device": hq_device}
 
 
 def _rows(client, auth, **extra):
@@ -80,10 +80,39 @@ def test_hq_filter_lists_hq_work_only(client, auth, world):
     assert rows["32"]["2026-10-04"]["status"] == "Absent"
 
 
+def test_check_in_and_check_out_use_the_branch_of_their_own_terminal(client, auth, world):
+    """A person can arrive on one terminal and leave on another. Each time keeps that terminal's branch."""
+    _load(
+        client, auth, world["hq_device"]["id"],
+        [{"user_id": "30", "name": "Shared Sam"}],
+        [{"user_id": "30", "punched_at": "2026-10-02T08:00:00", "punch": 0}],
+    )
+    _load(
+        client, auth, world["kitchen_device"]["id"],
+        [{"user_id": "30", "name": "Shared Sam"}],
+        [{"user_id": "30", "punched_at": "2026-10-02T16:00:00", "punch": 1}],
+    )
+    rows, _summary = _rows(client, auth)
+    day = rows["30"]["2026-10-02"]
+    assert day["check_in"] == "08:00" and day["check_in_branch"] == "HQ"
+    assert day["check_out"] == "16:00" and day["check_out_branch"] == "Kitchen"
+    text = client.get("/api/v1/exports", headers=auth, params={**PARAMS, "format": "csv"}).content.decode("utf-8-sig")
+    line = next(row for row in text.splitlines() if row.startswith("30,") and "02/10/2026" in row)
+    assert "08:00 HQ" in line and "16:00 Kitchen" in line
+    kitchen_days = set(_rows(client, auth, branch="Kitchen")[0]["30"])
+    hq_days = set(_rows(client, auth, branch="HQ")[0]["30"])
+    assert "2026-10-02" in kitchen_days and "2026-10-02" in hq_days
+
+
 def test_exports_and_changing_a_terminals_branch_apply_without_recalculating(client, auth, world):
     csv_kitchen = client.get("/api/v1/exports", headers=auth, params={**PARAMS, "format": "csv", "branch": "Kitchen"})
     assert csv_kitchen.status_code == 200
     assert b"Kay Kitchen" in csv_kitchen.content and b"Hana HQ" not in csv_kitchen.content
+    text = csv_kitchen.content.decode("utf-8-sig")
+    header = text.splitlines()[0]
+    assert header.split(",")[:4] == ["Employee ID", "Name", "Date", "Check-in"]
+    kay = next(line for line in text.splitlines() if line.startswith("31,"))
+    assert " Kitchen" in kay and "Kay Kitchen" in kay
     moved = client.patch(
         f"/api/v1/devices/{world['kitchen_device']['id']}", headers=auth, json={"branch_id": world["hq"]["id"]}
     )

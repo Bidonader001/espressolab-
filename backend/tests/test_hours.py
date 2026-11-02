@@ -38,27 +38,59 @@ def test_repeat_taps_collapse_but_real_short_gaps_do_not():
     assert remove_duplicate_taps(edge, 2) == [_t("2026-10-01T08:00:00"), _t("2026-10-01T08:04:01")]
 
 
-def test_same_flag_retap_is_not_a_session_but_opposite_flags_still_pair():
-    # Real case: check-in 09:05, check-in again 09:07, check-out 17:14 is one 8.15 hour day.
+def test_a_day_uses_the_first_punch_and_the_last_punch():
+    # Punches between the first and the last are ignored, whatever flag they carry.
     morning = [(_t("2026-10-12T09:05:55"), 0), (_t("2026-10-12T09:07:58"), 0), (_t("2026-10-12T17:14:04"), 1)]
     assert build_sessions(morning, 2, 12, 30) == [(_t("2026-10-12T09:05:55"), _t("2026-10-12T17:14:04"))]
-    # With the rule off, the old behaviour (a two-minute session and a dangling check-out) returns.
-    assert build_sessions(morning, 2, 12, 0) == [
-        (_t("2026-10-12T09:05:55"), _t("2026-10-12T09:07:58")),
-        (_t("2026-10-12T17:14:04"), None),
-    ]
-    # An in followed by an out a few minutes later is a real short session, kept.
+    assert build_sessions(morning, 2, 12, 0) == [(_t("2026-10-12T09:05:55"), _t("2026-10-12T17:14:04"))]
     short = [(_t("2026-10-12T09:00:00"), 0), (_t("2026-10-12T09:10:00"), 1)]
     assert build_sessions(short, 2, 12, 30) == [(short[0][0], short[1][0])]
-    # Unknown flags never trigger the rule.
     unknown = [(_t("2026-10-12T09:00:00"), None), (_t("2026-10-12T09:10:00"), None)]
     assert build_sessions(unknown, 2, 12, 30) == [(unknown[0][0], unknown[1][0])]
-    # The same flag later than the window is not a re-tap: the pair still forms by time order.
-    late = [(_t("2026-10-12T09:00:00"), 0), (_t("2026-10-12T09:31:00"), 0)]
-    assert build_sessions(late, 2, 12, 30) == [(late[0][0], late[1][0])]
-    # Taps chained within the window of the kept punch are all re-taps.
     chain = [(_t("2026-10-12T09:00:00"), 0), (_t("2026-10-12T09:20:00"), 0), (_t("2026-10-12T09:40:00"), 0)]
     assert build_sessions(chain, 2, 12, 30) == [(chain[0][0], chain[2][0])]
+    short_visit = [
+        (_t("2026-11-01T09:30:16"), 0),
+        (_t("2026-11-01T10:38:50"), 0),
+        (_t("2026-11-01T15:36:53"), 0),
+        (_t("2026-11-01T15:48:37"), 0),
+    ]
+    assert build_sessions(short_visit, 2, 12, 30) == [(short_visit[0][0], short_visit[3][0])]
+    again = [
+        (_t("2026-10-07T11:24:18"), 0),
+        (_t("2026-10-07T17:27:33"), 1),
+        (_t("2026-10-07T20:29:13"), 1),
+    ]
+    assert build_sessions(again, 2, 12, 30) == [(again[0][0], again[2][0])]
+
+
+def test_several_check_outs_in_one_day_are_listed(client, auth):
+    device = _device(client, auth, name="HQ")
+    logs = [
+        {"user_id": "1235", "punched_at": "2026-10-01T09:30:16", "punch": 0},
+        {"user_id": "1235", "punched_at": "2026-10-01T10:38:50", "punch": 0},
+        {"user_id": "1235", "punched_at": "2026-10-01T15:36:53", "punch": 0},
+        {"user_id": "1235", "punched_at": "2026-10-01T15:48:37", "punch": 0},
+        {"user_id": "8", "punched_at": "2026-10-01T11:24:18", "punch": 0},
+        {"user_id": "8", "punched_at": "2026-10-01T17:27:33", "punch": 1},
+        {"user_id": "8", "punched_at": "2026-10-01T17:38:16", "punch": 1},
+        {"user_id": "8", "punched_at": "2026-10-01T20:29:13", "punch": 1},
+    ]
+    _load(
+        client,
+        auth,
+        device["id"],
+        [{"user_id": "1235", "name": "Abdelrahman Nader"}, {"user_id": "8", "name": "Second Out"}],
+        logs,
+    )
+    rows, _summary = _rows(client, auth)
+    visit = rows[("1235", "2026-10-01")]
+    assert visit["check_in"] == "09:30"
+    assert visit["check_out"] == "15:48"
+    assert visit["hours_text"] == "6:18" and visit["hours_minutes"] == 378 and visit["status"] in {"Present", "Late"}
+    later = rows[("8", "2026-10-01")]
+    assert later["check_in"] == "11:24" and later["check_out"] == "20:29"
+    assert later["hours_text"] == "9:05"
 
 
 def test_a_retapped_check_in_still_counts_the_whole_day(client, auth):
@@ -77,7 +109,8 @@ def test_a_retapped_check_in_still_counts_the_whole_day(client, auth):
 
     off = client.put("/api/v1/settings", headers=auth, json={"retap_window_minutes": 0})
     assert off.status_code == 200 and isinstance(off.json()["recalculated_sessions"], int)
-    assert _rows(client, auth)[0][("9", "2026-10-01")]["status"] == "Incomplete"
+    assert _rows(client, auth)[0][("9", "2026-10-01")]["check_in"] == "09:05"
+    assert _rows(client, auth)[0][("9", "2026-10-01")]["check_out"] == "17:00"
     client.put("/api/v1/settings", headers=auth, json={"retap_window_minutes": 30})
     assert _rows(client, auth)[0][("9", "2026-10-01")]["hours"] == 7.92
 
@@ -128,29 +161,29 @@ def test_forgotten_checkout_is_reported_and_does_not_break_the_next_day(client, 
     assert rows[("3", "2026-10-04")]["status"] in {"Present", "Late"}
 
 
-def test_an_incomplete_day_shows_no_hours_and_adds_nothing_to_the_total(client, auth):
+def test_the_last_punch_of_the_day_is_the_check_out(client, auth):
     device = _device(client, auth, name="Kitchen")
-    # 08:00-12:00 closes, 13:00 has no check-out: the day is Incomplete even though part of it is paired.
+    # 12:00 is between the first and last punch, so the day is 08:00 to 13:00.
     logs = _log("10", "2026-10-01T08:00:00", "2026-10-01T12:00:00", "2026-10-01T13:00:00")
     logs += _log("10", "2026-10-04T08:00:00", "2026-10-04T16:00:00")
     _load(client, auth, device["id"], [{"user_id": "10", "name": "Ivy Incomplete"}], logs)
     rows, summary = _rows(client, auth)
-    broken = rows[("10", "2026-10-01")]
-    assert broken["status"] == "Incomplete" and broken["hours"] is None and broken["check_out"] == ""
+    day = rows[("10", "2026-10-01")]
+    assert day["check_in"] == "08:00" and day["check_out"] == "13:00" and day["hours"] == 5.0
     assert rows[("10", "2026-10-04")]["hours"] == 8.0
     person = next(row for row in summary if row["employee_id"] == "10")
-    assert person["total_hours"] == 8.0
+    assert person["total_hours"] == 13.0
 
 
-def test_twelve_hours_pairs_and_one_second_more_does_not(client, auth):
+def test_twelve_hours_uses_the_last_punch_too(client, auth):
     device = _device(client, auth, name="Kitchen")
     logs = _log("4", "2026-10-01T08:00:00", "2026-10-01T20:00:00") + _log("5", "2026-10-01T08:00:00", "2026-10-01T20:00:01")
     users = [{"user_id": "4", "name": "Omar Exact"}, {"user_id": "5", "name": "Samir Over"}]
     _load(client, auth, device["id"], users, logs)
     rows, _summary = _rows(client, auth)
     assert rows[("4", "2026-10-01")]["hours"] == 12.0
-    assert rows[("5", "2026-10-01")]["status"] == "Incomplete"
-    assert rows[("5", "2026-10-01")]["hours"] is None
+    assert rows[("5", "2026-10-01")]["check_in"] == "08:00" and rows[("5", "2026-10-01")]["check_out"] == "20:00"
+    assert rows[("5", "2026-10-01")]["hours_minutes"] == 720
 
 
 def test_working_time_is_checkout_minus_checkin_in_whole_minutes(client, auth):
@@ -164,12 +197,13 @@ def test_working_time_is_checkout_minus_checkin_in_whole_minutes(client, auth):
     _load(client, auth, device["id"], [{"user_id": "6", "name": "Rana Rounding"}], logs)
     rows, summary = _rows(client, auth)
     first, second = rows[("6", "2026-10-01")], rows[("6", "2026-10-04")]
-    assert first["hours_text"] == "8:01" and first["hours_minutes"] == 481
+    # 08:00:00 to 17:00:29 is 9:00 (29 seconds rounds down). The single day 09:46:28 to 17:29:53 is 7:43.
+    assert first["hours_text"] == "9:00" and first["hours_minutes"] == 540
     assert second["hours_text"] == "7:43" and second["hours_minutes"] == 463
     assert second["hours"] == 7.72, "the decimal is only another view of the same 463 minutes"
     person = next(row for row in summary if row["employee_id"] == "6")
-    assert person["total_minutes"] == 481 + 463 and person["total_text"] == "15:44"
-    assert person["total_hours"] == round(944 / 60, 2)
+    assert person["total_minutes"] == 540 + 463 and person["total_text"] == "16:43"
+    assert person["total_hours"] == round(1003 / 60, 2)
 
 
 def test_every_hours_value_in_every_export_is_hours_and_minutes(client, auth):
@@ -192,7 +226,9 @@ def test_changing_a_pairing_rule_recalculates_from_stored_punches(client, auth):
     shorter = client.put("/api/v1/settings", headers=auth, json={"max_session_hours": 6})
     assert shorter.status_code == 200, shorter.text
     assert isinstance(shorter.json()["recalculated_sessions"], int)
-    assert _rows(client, auth)[0][("7", "2026-10-01")]["status"] == "Incomplete"
+    assert _rows(client, auth)[0][("7", "2026-10-01")]["check_in"] == "08:00"
+    assert _rows(client, auth)[0][("7", "2026-10-01")]["check_out"] == "16:00"
+    assert _rows(client, auth)[0][("7", "2026-10-01")]["hours"] == 8.0
 
     restored = client.put("/api/v1/settings", headers=auth, json={"max_session_hours": 12})
     assert restored.status_code == 200, restored.text

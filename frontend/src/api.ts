@@ -1,4 +1,4 @@
-export type Role = "admin" | "supervisor" | "viewer";
+export type Role = "admin" | "supervisor" | "viewer" | "hr";
 
 export type User = { id: number; username: string; role: Role; is_active: boolean; created_at?: string };
 

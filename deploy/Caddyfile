@@ -1,0 +1,20 @@
+{
+	auto_https disable_redirects
+	local_certs
+}
+
+:443 {
+	reverse_proxy api:8000
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	encode gzip
+}
+
+:80 {
+	@iclock path /iclock*
+	handle @iclock {
+		reverse_proxy api:8000
+	}
+	handle {
+		redir https://{host}{uri} 308
+	}
+}

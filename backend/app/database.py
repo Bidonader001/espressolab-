@@ -84,10 +84,14 @@ def ensure_session_device() -> None:
     if not inspect(engine).has_table("attendance_sessions"):
         return
     columns = {col["name"] for col in inspect(engine).get_columns("attendance_sessions")}
-    if "device_id" in columns:
-        return
+    wanted = {
+        "device_id": "INTEGER",
+        "clock_out_device_id": "INTEGER",
+    }
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE attendance_sessions ADD COLUMN device_id INTEGER"))
+        for name, kind in wanted.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE attendance_sessions ADD COLUMN {name} {kind}"))
 
 
 def ensure_branch_default_shift() -> None:

@@ -53,7 +53,7 @@ def seed(db: Session) -> None:
 
 # Bump this whenever the way punches become sessions changes. Existing sessions are then rebuilt
 # once at startup from the stored punches, which are never touched.
-SESSION_RULES_VERSION = "4"
+SESSION_RULES_VERSION = "7"
 
 
 def recalculate_if_rules_changed(db: Session) -> int:

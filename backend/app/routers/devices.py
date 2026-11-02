@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.config import allow_simulator
-from app.deps import current_user, get_db, require_writer
+from app.deps import get_db, require_reader, require_writer
 from app.models import AttendanceSession, Branch, Device, DeviceUser, Employee, LeaveEntry, Punch, SyncRun, User
 from app.schemas import DeviceIn, DeviceUpdate, MapIn, SimulatorIn
 from app.security import encrypt_secret
@@ -40,7 +40,7 @@ def _check_protocol(protocol: str, serial: str) -> None:
 
 
 @router.get("/devices")
-def list_devices(db: Session = Depends(get_db), _: User = Depends(current_user)):
+def list_devices(db: Session = Depends(get_db), _: User = Depends(require_reader)):
     branches = {row.id: row.name for row in db.scalars(select(Branch)).all()}
     rows = db.scalars(select(Device).order_by(Device.name)).all()
     return {"items": [device_out(row, branches.get(row.branch_id, "") if row.branch_id else "") for row in rows]}
@@ -72,7 +72,7 @@ def create_device(body: DeviceIn, db: Session = Depends(get_db), user: User = De
 
 
 @router.get("/devices/{device_id}")
-def get_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+def get_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_reader)):
     row = _device(db, device_id)
     body = _out(db, row)
     body["punch_count"] = db.scalar(select(func.count()).select_from(Punch).where(Punch.device_id == row.id)) or 0
@@ -210,7 +210,7 @@ def device_punches(
     device_id: int,
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: User = Depends(current_user),
+    _: User = Depends(require_reader),
 ):
     _device(db, device_id)
     rows = db.scalars(select(Punch).where(Punch.device_id == device_id).order_by(Punch.punched_at.desc()).limit(limit)).all()
@@ -231,7 +231,7 @@ def device_punches(
 
 
 @router.get("/devices/{device_id}/users")
-def device_users(device_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+def device_users(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_reader)):
     _device(db, device_id)
     rows = db.scalars(select(DeviceUser).where(DeviceUser.device_id == device_id).order_by(DeviceUser.device_user_id)).all()
     employees = {row.id: row for row in db.scalars(select(Employee)).all()}
@@ -308,7 +308,7 @@ def list_sync_runs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: User = Depends(current_user),
+    _: User = Depends(require_reader),
 ):
     stmt = select(SyncRun)
     if device_id:
@@ -325,7 +325,7 @@ def list_sync_runs(
 
 
 @router.get("/sync-runs/{run_id}")
-def get_sync_run(run_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+def get_sync_run(run_id: int, db: Session = Depends(get_db), _: User = Depends(require_reader)):
     row = db.get(SyncRun, run_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Sync run not found")

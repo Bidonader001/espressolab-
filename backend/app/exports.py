@@ -258,24 +258,35 @@ def _active_in_period(people, bundle, settings, start: date, end: date, employee
     return kept, first_seen
 
 
-def _apply_branches(people: list[dict], sessions: list[dict], rules: dict, branch: str):
-    """Connect reports to branches through the terminal that recorded each check-in.
+def _session_touches(item: dict, branch: str) -> bool:
+    """True when this session's check-in or check-out was recorded at `branch`."""
+    return item.get("branch") == branch or item.get("out_branch") == branch
 
-    A session belongs to the branch of the device it was punched on, and to the employee's own branch
-    when that device has none. A person's home branch for the period is where most of their sessions
-    are, which decides their summary row, their absent and weekend days, and which working days and
-    grace period apply. With a branch filter, only people who punched there are listed, with only the
-    sessions recorded there.
+
+def _apply_branches(people: list[dict], sessions: list[dict], rules: dict, branch: str):
+    """Connect reports to branches through the terminals that recorded each punch.
+
+    A session's check-in branch is the device that recorded clock-in, and its check-out branch is the
+    device that recorded clock-out (they can differ). The employee's own branch is used when a device
+    has none. A person's home branch for the period is where most of their check-ins are, which
+    decides their summary row, their absent and weekend days, and which working days and grace period
+    apply. With a branch filter, only people who punched there (in or out) are listed, with only the
+    sessions that touched that branch.
     """
     own = {p["employee_id"]: p.get("branch") or "HQ" for p in people}
     tagged = []
     counts: dict[str, dict[str, int]] = {}
+    touched: dict[str, set[str]] = {}
     for item in sessions:
         eid = item.get("employee_id")
         name = item.get("branch") or own.get(eid) or "HQ"
-        tagged.append({**item, "branch": name})
+        out_name = item.get("out_branch") or (name if item.get("clock_out") else "")
+        tagged.append({**item, "branch": name, "out_branch": out_name})
         counts.setdefault(eid, {})
         counts[eid][name] = counts[eid].get(name, 0) + 1
+        touched.setdefault(eid, set()).add(name)
+        if out_name:
+            touched[eid].add(out_name)
     kept = []
     for person in people:
         eid = person["employee_id"]
@@ -286,7 +297,7 @@ def _apply_branches(people: list[dict], sessions: list[dict], rules: dict, branc
             home = own[eid] if own[eid] in winners else winners[0]
         else:
             home = own[eid]
-        if branch and not (branch in mine or (not mine and home == branch)):
+        if branch and not (branch in (touched.get(eid) or set()) or (not mine and home == branch)):
             continue
         shown = {**person, "branch": home}
         rule = rules.get(home)
@@ -299,9 +310,9 @@ def _apply_branches(people: list[dict], sessions: list[dict], rules: dict, branc
     tagged = [item for item in tagged if item.get("employee_id") in allowed]
     elsewhere: set[tuple[str, str]] = set()
     if branch:
-        # Days worked at another branch are not listed here, but they are not absences either.
-        elsewhere = {(item["employee_id"], str(item.get("work_date") or "")) for item in tagged if item["branch"] != branch}
-        tagged = [item for item in tagged if item["branch"] == branch]
+        # Days worked only at another branch are not listed here, but they are not absences either.
+        elsewhere = {(item["employee_id"], str(item.get("work_date") or "")) for item in tagged if not _session_touches(item, branch)}
+        tagged = [item for item in tagged if _session_touches(item, branch)]
     return kept, tagged, elsewhere
 
 
@@ -376,10 +387,17 @@ def collect(params: dict, bundle: dict) -> dict:
         group = sorted(group, key=lambda s: str(s.get("clock_in") or ""))
         closed = [s for s in group if s.get("clock_out")]
         open_rows = [s for s in group if not s.get("clock_out")]
-        # Working time is check-out minus check-in. A day is the sum of its closed sessions in whole minutes.
+        # Working time is the day's last check-out minus its first check-in, the two times on the row.
         # A day with any unclosed session is Incomplete and carries no hours, so a half-known day never adds to a total.
-        parts = [m for m in (_session_minutes(s) for s in closed) if m is not None]
-        day_minutes = sum(parts) if parts and not open_rows else None
+        last_out = ""
+        in_branch = group[0].get("branch") or person.get("branch") or "HQ"
+        out_branch = in_branch
+        day_minutes = None
+        if closed and not open_rows:
+            last = max(closed, key=lambda s: str(s.get("clock_out") or ""))
+            last_out = _fmt_time(last.get("clock_out"))
+            out_branch = last.get("out_branch") or last.get("branch") or in_branch
+            day_minutes = _session_minutes({"clock_in": group[0].get("clock_in"), "clock_out": last.get("clock_out")})
         hours = round(day_minutes / 60, 2) if day_minutes is not None else None
         late_min = max(int(s.get("minutes_late") or 0) for s in group)
         row_grace = _person_grace(person, grace)
@@ -403,10 +421,6 @@ def collect(params: dict, bundle: dict) -> dict:
             incomplete_days[eid].add(work_day)
         if day_minutes is not None:
             minutes_sum[eid] += day_minutes
-        last_out = ""
-        if closed and not open_rows:
-            last = max(closed, key=lambda s: str(s.get("clock_out") or ""))
-            last_out = _fmt_time(last.get("clock_out"))
         row = {
             "employee_id": eid,
             "name": group[0].get("employee_name") or person.get("name") or "",
@@ -420,7 +434,9 @@ def collect(params: dict, bundle: dict) -> dict:
             "status": label,
             "shift": group[0].get("shift_name") or person.get("shift_name") or "",
             "department": person.get("department") or "",
-            "branch": group[0].get("branch") or person.get("branch") or "HQ",
+            "branch": in_branch,
+            "check_in_branch": in_branch,
+            "check_out_branch": out_branch,
             "late_minutes": late_min,
             "device": group[0].get("device_mac") or "",
             "weekend": is_weekend,
@@ -646,12 +662,38 @@ def column_labels(keys: list[str]) -> list[str]:
     return [labels.get(key, key) for key in keys]
 
 
+def _with_branch(text: str, branch: str) -> str:
+    """Write that punch's own branch beside the time (18:01 CFC) or beside No check-out."""
+    value = (text or "").strip()
+    if not value:
+        return ""
+    name = (branch or "").strip()
+    return f"{value} {name}".strip() if name else value
+
+
+def _summary_name(item: dict) -> str:
+    name = item.get("employee") or item.get("employee_id") or ""
+    branch = (item.get("branch") or "").strip()
+    return f"{name} · {branch}" if branch else name
+
+
+def _summary_incomplete(item: dict):
+    count = int(item.get("incomplete_days") or 0)
+    if not count:
+        return 0
+    branch = (item.get("branch") or "").strip()
+    return f"{count} · {branch}" if branch else count
+
+
 def _detail_value(row: dict, key: str):
     value = row.get(key)
     if key == "hours":
         return row.get("hours_text") or None  # "7:43", never a decimal
-    if key == "check_out" and row.get("status") == "Incomplete":
-        return NO_CHECKOUT  # a check-in without a check-out is never left blank
+    if key == "check_in":
+        return csv_safe(_with_branch(row.get("check_in") or "", row.get("check_in_branch") or row.get("branch") or ""))
+    if key == "check_out":
+        text = NO_CHECKOUT if row.get("status") == "Incomplete" else (row.get("check_out") or "")
+        return csv_safe(_with_branch(text, row.get("check_out_branch") or row.get("check_in_branch") or row.get("branch") or ""))
     return csv_safe(value) if isinstance(value, str) else value
 
 
@@ -673,12 +715,8 @@ def preview_payload(data: dict, columns: str, page: int, page_size: int) -> dict
         for key in cols:
             if report == "employees":
                 value = row.get(key) or ""
-            elif key == "hours":
-                value = row.get("hours_text") or ""
-            elif key == "check_out" and row.get("status") == "Incomplete":
-                value = NO_CHECKOUT
             else:
-                value = row.get(key)
+                value = _detail_value(row, key)
                 value = "" if value is None else value
             line.append(value if isinstance(value, (int, float)) else str(value))
         cells.append({"cells": line, "status": "" if report == "employees" else row.get("status") or ""})
@@ -686,13 +724,14 @@ def preview_payload(data: dict, columns: str, page: int, page_size: int) -> dict
     if report != "employees":
         summary = [
             {
-                "employee": item["employee"],
+                "employee": _summary_name(item),
                 "employee_id": item["employee_id"],
                 "branch": item["branch"],
                 "days_present": item["days_present"],
                 "late_arrivals": item["late_arrivals"],
                 "absences": item["absences"],
                 "incomplete_days": item["incomplete_days"],
+                "incomplete_text": str(_summary_incomplete(item)),
                 "total_text": item["total_text"],
             }
             for item in data["summary"]
@@ -846,7 +885,7 @@ def _excel(data: dict, cols: list[str]) -> bytes:
                 if key == "hours":
                     minutes = item.get("hours_minutes")
                     val = timedelta(minutes=minutes) if minutes is not None else None  # real duration, sums in Excel
-                if key in {"name", "employee_id", "status", "shift", "department", "branch", "device"}:
+                if key in {"name", "employee_id", "status", "shift", "department", "branch", "device", "check_in", "check_out"}:
                     val = csv_safe(val)
                 excel_row.append(val)
             ws.append(excel_row)
@@ -887,6 +926,10 @@ def _excel(data: dict, cols: list[str]) -> bytes:
             ws.column_dimensions[get_column_letter(i)].width = 16
         ws.column_dimensions["A"].width = 14
         ws.column_dimensions["B"].width = 22
+        if "check_in" in cols:
+            ws.column_dimensions[get_column_letter(cols.index("check_in") + 1)].width = 18
+        if "check_out" in cols:
+            ws.column_dimensions[get_column_letter(cols.index("check_out") + 1)].width = 22
 
         if report in {"monthly", "daily", "hours"}:
             sm = wb.create_sheet("Employee Summary")
@@ -895,14 +938,15 @@ def _excel(data: dict, cols: list[str]) -> bytes:
             for idx, label in enumerate(SUMMARY_HEADERS, start=1):
                 sm.cell(sh, idx, label)
             total_present = total_late = total_abs = total_incomplete = total_minutes = 0
+            hours_col = SUMMARY_HEADERS.index("Total hours") + 1
             for item in data["summary"]:
                 sm.append(
                     [
-                        csv_safe(item["employee"]),
+                        csv_safe(_summary_name(item)),
                         item["days_present"],
                         item["late_arrivals"],
                         item["absences"],
-                        item["incomplete_days"],
+                        _summary_incomplete(item),
                         timedelta(minutes=item["total_minutes"]),
                     ]
                 )
@@ -922,13 +966,13 @@ def _excel(data: dict, cols: list[str]) -> bytes:
                     if r > sh and r % 2 == 0 and r < last_s:
                         cell.fill = ZEBRA
                 if r > sh:
-                    sm.cell(r, 6).number_format = "[h]:mm"
+                    sm.cell(r, hours_col).number_format = "[h]:mm"
             for c in range(1, width + 1):
                 sm.cell(last_s, c).font = Font(bold=True)
                 sm.cell(last_s, c).fill = CREAM
             _style_header(sm, sh, width)
             sm.auto_filter.ref = f"A{sh}:{get_column_letter(width)}{max(last_s - 1, sh)}"
-            sm.column_dimensions["A"].width = 28
+            sm.column_dimensions["A"].width = 32
             for col in "BCDEF":
                 sm.column_dimensions[col].width = 16
 
@@ -996,7 +1040,7 @@ def _shape(text: str) -> str:
 PDF_WIDTH = A4[0] - 48  # portrait A4 between 24 pt margins
 
 _PDF_WEIGHTS = {
-    "employee_id": 1.3, "name": 1.8, "date": 2.0, "check_in": 1.2, "check_out": 1.6, "hours": 0.9,
+    "employee_id": 1.3, "name": 1.8, "date": 2.0, "check_in": 1.7, "check_out": 2.1, "hours": 0.9,
     "status": 1.5, "shift": 0.9, "department": 1.4, "branch": 1.15, "late_minutes": 1.1, "device": 1.1,
     "email": 2.2, "phone": 1.4, "job_title": 1.5, "joining_date": 1.3,
 }
@@ -1119,15 +1163,15 @@ def _pdf(data: dict, cols: list[str]) -> bytes:
         for item in data["summary"]:
             sm.append(
                 [
-                    cell(item["employee"]),
+                    cell(_summary_name(item)),
                     str(item["days_present"]),
                     str(item["late_arrivals"]),
                     str(item["absences"]),
-                    str(item["incomplete_days"]),
+                    str(_summary_incomplete(item)),
                     item["total_text"],
                 ]
             )
-        summary_table = Table(sm, repeatRows=1, colWidths=[PDF_WIDTH * share for share in (0.30, 0.13, 0.13, 0.13, 0.15, 0.16)])
+        summary_table = Table(sm, repeatRows=1, colWidths=[PDF_WIDTH * share for share in (0.32, 0.13, 0.13, 0.13, 0.15, 0.14)])
         summary_table.setStyle(
             TableStyle(
                 [

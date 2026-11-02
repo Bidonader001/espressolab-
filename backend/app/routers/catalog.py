@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.deps import current_user, get_db, require_writer
+from app.deps import get_db, require_reader, require_writer
 from app.models import Branch, Employee, Holiday, LeaveEntry, Shift, User
 from app.schemas import BranchIn, EmployeeBulkStatusIn, EmployeeIn, HolidayIn, LeaveIn, ShiftIn
 from app.serialize import branch_out, employee_out, holiday_out, leave_out, shift_out
@@ -30,7 +30,7 @@ def _employee_dict(row: Employee, branches, shifts) -> dict:
 
 
 @router.get("/branches")
-def list_branches(db: Session = Depends(get_db), _: User = Depends(current_user)):
+def list_branches(db: Session = Depends(get_db), _: User = Depends(require_reader)):
     return {"items": [branch_out(row) for row in db.scalars(select(Branch).order_by(Branch.name)).all()]}
 
 
@@ -127,7 +127,7 @@ def _employees_using_shift(db: Session, shift_id: int) -> set[int]:
 
 
 @router.get("/shifts")
-def list_shifts(db: Session = Depends(get_db), _: User = Depends(current_user)):
+def list_shifts(db: Session = Depends(get_db), _: User = Depends(require_reader)):
     branches, _shifts = _maps(db)
     rows = db.scalars(select(Shift).order_by(Shift.start_time, Shift.name)).all()
     return {
@@ -239,7 +239,7 @@ def list_employees(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: User = Depends(current_user),
+    _: User = Depends(require_reader),
 ):
     stmt = _employee_filter(select(Employee), q, branch_id, department, status)
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
@@ -286,7 +286,7 @@ def _get_employee(db: Session, employee_id: str) -> Employee:
 
 
 @router.get("/employees/{employee_id}")
-def get_employee(employee_id: str, db: Session = Depends(get_db), _: User = Depends(current_user)):
+def get_employee(employee_id: str, db: Session = Depends(get_db), _: User = Depends(require_reader)):
     row = _get_employee(db, employee_id)
     branches, shifts = _maps(db)
     return _employee_dict(row, branches, shifts)
@@ -354,7 +354,7 @@ def employee_attendance(
     start_date: str = "",
     end_date: str = "",
     db: Session = Depends(get_db),
-    _: User = Depends(current_user),
+    _: User = Depends(require_reader),
 ):
     _get_employee(db, employee_id)
     bundle = load_bundle(db, employee_id=employee_id, date_from=start_date, date_to=end_date)
@@ -375,7 +375,7 @@ def employee_attendance(
 
 
 @router.get("/holidays")
-def list_holidays(db: Session = Depends(get_db), _: User = Depends(current_user)):
+def list_holidays(db: Session = Depends(get_db), _: User = Depends(require_reader)):
     branches, _shifts = _maps(db)
     rows = db.scalars(select(Holiday).order_by(Holiday.holiday_date)).all()
     return {
@@ -405,7 +405,7 @@ def delete_holiday(holiday_id: int, db: Session = Depends(get_db), user: User = 
 
 
 @router.get("/leave")
-def list_leave(db: Session = Depends(get_db), _: User = Depends(current_user)):
+def list_leave(db: Session = Depends(get_db), _: User = Depends(require_reader)):
     rows = db.execute(select(LeaveEntry, Employee).join(Employee, LeaveEntry.employee_pk == Employee.id).order_by(LeaveEntry.work_date.desc())).all()
     return {"items": [leave_out(leave, emp.employee_id, emp.full_name) for leave, emp in rows]}
 

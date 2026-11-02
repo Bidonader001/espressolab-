@@ -134,6 +134,7 @@ def load_bundle(
                 "minutes_late": int(sess.minutes_late or 0),
                 "device_mac": sess.device_name or "",
                 "branch": device_branch.get(sess.device_id, ""),
+                "out_branch": device_branch.get(sess.clock_out_device_id, "") if sess.clock_out_device_id else "",
             }
         )
     activity: dict[str, tuple[str, str]] = {}
@@ -267,6 +268,7 @@ def rebuild_employees(db: Session, employee_pks: set[int]) -> int:
                     shift_name=shift_name,
                     device_name=by_time[cin].device_name_snapshot or "",
                     device_id=by_time[cin].device_id,
+                    clock_out_device_id=by_time[cout].device_id if cout is not None and cout in by_time else None,
                 )
             )
             created += 1

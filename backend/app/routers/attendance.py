@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.deps import current_user, get_db, require_writer
+from app.deps import get_db, require_reader, require_writer
 from app.exports import DETAIL_ALL, DETAIL_DEFAULT, DIRECTORY_ALL, DIRECTORY_DEFAULT, FORMATS, REPORT_TYPES, ExportError, collect
 from app.models import Branch, Device, DeviceUser, Employee, SyncRun, User
 from app.services.attendance import get_settings, load_bundle, rebuild_employees
@@ -26,7 +26,7 @@ def _today(zone: str):
 
 
 @router.get("/dashboard")
-def dashboard(branch: str = "", db: Session = Depends(get_db), _: User = Depends(current_user)):
+def dashboard(branch: str = "", db: Session = Depends(get_db), _: User = Depends(require_reader)):
     settings = get_settings(db)
     zone = settings.get("timezone") or "Europe/Istanbul"
     if branch.strip():
@@ -141,7 +141,7 @@ def attendance(
     source: str = "",
     device_id: str = "",
     db: Session = Depends(get_db),
-    _: User = Depends(current_user),
+    _: User = Depends(require_reader),
 ):
     bundle = load_bundle(db, employee_id=employee_id, date_from=start_date, date_to=end_date)
     try:

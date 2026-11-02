@@ -32,7 +32,7 @@ def _csv(client, auth) -> dict[str, list[str]]:
 
 def test_incomplete_day_spells_out_the_missing_check_out(client, auth, person):
     thursday = _csv(client, auth)["01/10/2026"]
-    assert thursday[3] == "09:00" and thursday[4] == "No check-out" and thursday[5] == "" and thursday[6] == "Incomplete"
+    assert thursday[3] == "09:00 HQ" and thursday[4] == "No check-out HQ" and thursday[5] == "" and thursday[6] == "Incomplete"
 
 
 def test_friday_and_saturday_are_listed_and_never_counted_absent(client, auth, person):
@@ -68,7 +68,7 @@ def test_workbook_highlights_incomplete_rows_and_days_off(client, auth, person):
         return sheet.cell(rows[day], col).fill.fgColor.rgb
 
     assert [fill("01/10/2026", col) for col in range(1, 8)] == ["00FFE08A"] * 7  # Incomplete: whole row
-    assert sheet.cell(rows["01/10/2026"], 5).value == "No check-out"
+    assert sheet.cell(rows["01/10/2026"], 5).value == "No check-out HQ"
     assert [fill("02/10/2026", col) for col in range(1, 8)] == ["00D6E4F5"] * 7  # Friday: whole row
     assert fill("03/10/2026", 3) == "00D6E4F5"  # worked Saturday: the date cell
 

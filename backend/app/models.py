@@ -155,6 +155,8 @@ class AttendanceSession(Base):
     device_name: Mapped[str] = mapped_column(String(120), default="")
     # The terminal that recorded the check-in. Reports take the session's branch from this device's branch.
     device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The terminal that recorded the check-out. Empty when the session is still open.
+    clock_out_device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Holiday(Base):

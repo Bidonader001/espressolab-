@@ -27,7 +27,7 @@ type Run = { id: number; status: string; message: string; error_message: string;
 type Employee = { employee_id: string; full_name: string };
 
 export function DeviceDetailPage({ role }: { role: string }) {
-  const canWrite = role !== "viewer";
+  const canWrite = role === "admin" || role === "supervisor";
   const { deviceId = "" } = useParams();
   const [device, setDevice] = useState<Device | null>(null);
   const [punches, setPunches] = useState<Punch[]>([]);

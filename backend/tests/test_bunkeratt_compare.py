@@ -24,6 +24,22 @@ DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 EXTRA = {"Weekend", "Absent"}
 
 
+def _time_only(cell):
+    """Check-in / check-out cells write the branch beside the time. BunkerAtt has the time alone."""
+    text = "" if cell is None else str(cell)
+    if text.startswith("No check-out"):
+        return "No check-out"
+    return text.split(" ", 1)[0] if text else ""
+
+
+def _without_punch_branch(row):
+    row = list(row)
+    if len(row) > 4:
+        row[3] = _time_only(row[3])
+        row[4] = _time_only(row[4])
+    return row
+
+
 def _minutes(decimal_hours) -> int:
     return round(float(decimal_hours) * 60)
 
@@ -203,17 +219,18 @@ def test_detail_rows_match_bunkeratt(client, auth, tmp_path, monkeypatch):
     ref_table = list(csv.reader(io.StringIO(ref_csv.decode("utf-8-sig"))))
     our_table = list(csv.reader(io.StringIO(ours.content.decode("utf-8-sig"))))
     assert our_table[0] == ref_table[0]
+    comparable = [_without_punch_branch(row) for row in our_table[1:]]
     # This app also lists Friday and Saturday as highlighted "Weekend" rows. BunkerAtt has none, so set
     # them aside, check they exist, and compare everything else cell for cell.
-    absent = [row for row in our_table[1:] if row[6] == "Absent"]
+    absent = [row for row in comparable if row[6] == "Absent"]
     assert absent and all(not row[3] and not row[4] and not row[5] for row in absent)
-    weekend = [row for row in our_table[1:] if row[6] == "Weekend"]
+    weekend = [row for row in comparable if row[6] == "Weekend"]
     assert weekend and all(row[2].split()[-1] in {"Fri", "Sat"} for row in weekend)
-    assert [row for row in our_table[1:] if row[6] not in EXTRA] == _our_layout(ref_table[1:])
+    assert [row for row in comparable if row[6] not in EXTRA] == _our_layout(ref_table[1:])
     assert ref_name.startswith("BunkerAttendance_")
     assert "EspressoLabAttendance_Attendance_2026-10.csv" in ours.headers["content-disposition"]
     assert any(row[2] == "01/10/2026 Thu" for row in our_table[1:])
-    names = [(row[1].lower(), row[0]) for row in our_table[1:] if row[6] not in EXTRA]
+    names = [(row[1].lower(), row[0]) for row in comparable if row[6] not in EXTRA]
     assert names == sorted(names)
 
     def whole_minutes(hours):
@@ -250,18 +267,23 @@ def test_detail_rows_match_bunkeratt(client, auth, tmp_path, monkeypatch):
     our_sheet = our_book["Attendance Details"]
     assert [our_sheet.cell(8, col).value for col in range(1, 8)] == [ref_sheet.cell(8, col).value for col in range(1, 8)]
     ref_rows = [list(row) for row in ref_sheet.iter_rows(min_row=9, max_col=7, values_only=True)]
-    our_rows = [list(row) for row in our_sheet.iter_rows(min_row=9, max_col=7, values_only=True)]
+    our_rows = [_without_punch_branch(row) for row in our_sheet.iter_rows(min_row=9, max_col=7, values_only=True)]
     assert [row for row in our_rows if row[6] not in EXTRA] == _our_layout(ref_rows, workbook=True)
     # BunkerAtt's summary continues into salary. Those two columns are omitted here. This app adds
     # an "Incomplete days" column before the hours total and shows the total as a duration.
+    # The employee name has the home branch written beside it (Name · Branch).
     assert [ref_book["Employee Summary"].cell(8, col).value for col in range(6, 8)] == ["Base salary", "Net pay"]
-    assert [our_book["Employee Summary"].cell(8, col).value for col in range(5, 7)] == ["Incomplete days", "Total hours"]
+    assert [our_book["Employee Summary"].cell(8, col).value for col in range(1, 7)] == [
+        "Employee", "Days present", "Late arrivals", "Absences", "Incomplete days", "Total hours",
+    ]
     assert our_book["Employee Summary"].cell(8, 7).value is None
     ref_sum_rows = list(ref_book["Employee Summary"].iter_rows(min_row=9, max_col=5, values_only=True))
     our_sum_rows = list(our_book["Employee Summary"].iter_rows(min_row=9, max_col=6, values_only=True))
     assert len(our_sum_rows) == len(ref_sum_rows)
     for ours_row, ref_row in zip(our_sum_rows, ref_sum_rows):
-        assert list(ours_row[:4]) == list(ref_row[:4])
+        ours_name = str(ours_row[0] or "").split(" · ", 1)[0]
+        assert ours_name == ref_row[0]
+        assert list(ours_row[1:4]) == list(ref_row[1:4])
         assert isinstance(ours_row[5], timedelta)
         if ref_row[0] != "Total":
             assert abs(ours_row[5].total_seconds() / 3600 - float(ref_row[4])) <= 0.02

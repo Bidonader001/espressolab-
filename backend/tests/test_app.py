@@ -86,6 +86,45 @@ def test_viewer_cannot_write(client, auth):
     assert client.get("/api/v1/users", headers=viewer).status_code == 403
 
 
+def test_hr_can_export_reports_only(client, auth):
+    created = client.post(
+        "/api/v1/users",
+        headers=auth,
+        json={"username": "hr1", "password": "hr-pass-12", "role": "hr"},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["role"] == "hr"
+    hr = _login(client, "hr1", "hr-pass-12")
+    assert client.get("/api/v1/exports/meta", headers=hr).status_code == 200
+    preview = client.get(
+        "/api/v1/exports/preview",
+        headers=hr,
+        params={"report": "monthly", "start_date": "2026-10-01", "end_date": "2026-10-02", "source": "device"},
+    )
+    assert preview.status_code == 200, preview.text
+    csv_file = client.get(
+        "/api/v1/exports",
+        headers=hr,
+        params={"report": "monthly", "format": "csv", "start_date": "2026-10-01", "end_date": "2026-10-02", "source": "device"},
+    )
+    assert csv_file.status_code == 200
+    assert client.get("/api/v1/attendance", headers=hr).status_code == 403
+    assert client.get("/api/v1/employees", headers=hr).status_code == 403
+    assert client.get("/api/v1/devices", headers=hr).status_code == 403
+    assert client.get("/api/v1/dashboard", headers=hr).status_code == 403
+    assert client.get("/api/v1/branches", headers=hr).status_code == 403
+    assert client.get("/api/v1/users", headers=hr).status_code == 403
+    assert client.get("/api/v1/audit", headers=hr).status_code == 403
+    blocked = client.post("/api/v1/employees", headers=hr, json={"employee_id": "X", "full_name": "Nope"})
+    assert blocked.status_code == 403
+    refused = client.post(
+        "/api/v1/users",
+        headers=auth,
+        json={"username": "badrole", "password": "hr-pass-12", "role": "payroll"},
+    )
+    assert refused.status_code == 422
+
+
 def test_dashboard_is_empty_until_data_exists(client, auth):
     body = client.get("/api/v1/dashboard", headers=auth).json()
     assert body["present"] == 0
@@ -150,7 +189,7 @@ def test_punch_rules_grace_pairs_overnight_and_duplicates(client, auth):
     lunch = by_key[("E1", "2026-10-06")]
     assert lunch["check_in"] == "08:00"
     assert lunch["check_out"] == "17:00"
-    assert lunch["hours"] == 8.0
+    assert lunch["hours"] == 9.0
     missing = by_key[("E1", "2026-10-05")]
     assert missing["status"] == "Incomplete"
     assert missing["check_out"] == ""
@@ -302,8 +341,12 @@ def test_exports_match_calculation_and_workbook(client, auth):
     assert summary.cell(8, 7).value is None
     # 08:55 to 17:02 is 8 hours 7 minutes. Excel gets a real duration shown as 8:07, never a decimal.
     ahmed_row = next(row for row in range(9, sheet.max_row + 1) if sheet.cell(row, 1).value == "EMP-001")
+    assert sheet.cell(ahmed_row, 4).value == "08:55 HQ"
+    assert sheet.cell(ahmed_row, 5).value == "17:02 HQ"
     assert sheet.cell(ahmed_row, 6).number_format == "[h]:mm"
     assert sheet.cell(ahmed_row, 6).value == timedelta(hours=8, minutes=7)
+    ahmed_sum = next(row for row in range(9, summary.max_row + 1) if str(summary.cell(row, 1).value or "").startswith("Ahmed Mohamed"))
+    assert summary.cell(ahmed_sum, 1).value == "Ahmed Mohamed · HQ"
     csv_file = client.get("/api/v1/exports", headers=auth, params={**params, "format": "csv"})
     text = csv_file.content.decode("utf-8-sig")
     assert text.startswith("Employee ID,")

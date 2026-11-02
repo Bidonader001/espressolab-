@@ -82,13 +82,14 @@ def test_preview_matches_the_csv_download_cell_for_cell(client, auth):
     assert body["count"] == len(table) - 1
     by_date = {line["cells"][2][:10]: line for line in body["rows"]}
     thursday = by_date["01/10/2026"]
-    assert thursday["status"] == "Incomplete" and thursday["cells"][4] == "No check-out" and thursday["cells"][5] == ""
+    assert thursday["status"] == "Incomplete" and thursday["cells"][4] == "No check-out HQ" and thursday["cells"][5] == ""
+    assert thursday["cells"][3] == "09:00 HQ"
     assert by_date["02/10/2026"]["status"] == "Weekend"
     assert by_date["03/10/2026"]["cells"][5] == "8:00"
     # Totals shown with the preview follow the same rules as the files: Incomplete adds nothing.
     assert body["total_hours"] == "8:00" and body["incomplete_days"] == 1
     assert body["start"] == "2026-10-01" and body["end"] == "2026-10-04" and "check-out minus check-in" in body["hours_note"]
-    assert any(item["employee"] == "Pia Preview" and item["total_text"] == "8:00" for item in body["summary"])
+    assert any(item["employee"] == "Pia Preview · HQ" and item["incomplete_text"] == "1 · HQ" and item["total_text"] == "8:00" for item in body["summary"])
 
 
 def test_preview_pages_follow_filters_and_report_the_same_errors_as_downloads(client, auth):

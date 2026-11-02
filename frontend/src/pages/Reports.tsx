@@ -15,7 +15,7 @@ type Preview = {
   count: number;
   page: number;
   page_size: number;
-  summary: { employee: string; employee_id: string; branch: string; days_present: number; late_arrivals: number; absences: number; incomplete_days: number; total_text: string }[];
+  summary: { employee: string; employee_id: string; branch: string; days_present: number; late_arrivals: number; absences: number; incomplete_days: number; incomplete_text?: string; total_text: string }[];
   total_hours: string;
   incomplete_days: number;
 };
@@ -180,7 +180,7 @@ export function ReportsPage() {
                     {row.cells.map((cell, col) => {
                       const key = preview.keys[col];
                       if (key === "status") return <td key={col}><span className={`badge ${slug(String(cell))}`}>{cell}</span></td>;
-                      if (key === "check_out" && cell === "No check-out") return <td key={col}><span className="no-checkout">No check-out</span></td>;
+                      if (key === "check_out" && String(cell).startsWith("No check-out")) return <td key={col}><span className="no-checkout">{cell}</span></td>;
                       return <td key={col}>{cell === "" ? "—" : cell}</td>;
                     })}
                   </tr>
@@ -199,10 +199,10 @@ export function ReportsPage() {
               <summary>Employee summary ({preview.summary.length})</summary>
               <div className="scroll-x">
                 <table>
-                  <thead><tr><th>Employee</th><th>Branch</th><th>Days present</th><th>Late arrivals</th><th>Absences</th><th>Incomplete days</th><th>Total hours</th></tr></thead>
+                  <thead><tr><th>Employee</th><th>Days present</th><th>Late arrivals</th><th>Absences</th><th>Incomplete days</th><th>Total hours</th></tr></thead>
                   <tbody>
                     {preview.summary.map((row) => (
-                      <tr key={row.employee_id}><td>{row.employee}</td><td>{row.branch}</td><td>{row.days_present}</td><td>{row.late_arrivals}</td><td>{row.absences}</td><td>{row.incomplete_days}</td><td>{row.total_text}</td></tr>
+                      <tr key={row.employee_id}><td>{row.employee}</td><td>{row.days_present}</td><td>{row.late_arrivals}</td><td>{row.absences}</td><td>{row.incomplete_text || row.incomplete_days}</td><td>{row.total_text}</td></tr>
                     ))}
                   </tbody>
                 </table>

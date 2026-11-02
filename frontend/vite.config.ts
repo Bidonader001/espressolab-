@@ -6,8 +6,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://127.0.0.1:8000",
-      "/iclock": "http://127.0.0.1:8000",
+      "/api": { target: "https://127.0.0.1:8443", secure: false },
+      "/iclock": { target: "http://127.0.0.1:8080" },
     },
   },
 });

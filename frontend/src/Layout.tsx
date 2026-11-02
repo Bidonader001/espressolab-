@@ -2,13 +2,12 @@ import { NavLink, Outlet } from "react-router-dom";
 import { Session } from "./App";
 import { Logo } from "./Logo";
 
+const STAFF = ["admin", "supervisor", "viewer"];
 const LINKS: { to: string; label: string; end?: boolean; roles?: string[] }[] = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/attendance", label: "Attendance" },
-  { to: "/employees", label: "Employees" },
-  { to: "/branches", label: "Branches" },
-  { to: "/devices", label: "Devices" },
-  { to: "/sync", label: "Sync history" },
+  { to: "/employees", label: "Employees", roles: STAFF },
+  { to: "/branches", label: "Branches", roles: STAFF },
+  { to: "/devices", label: "Devices", roles: STAFF },
+  { to: "/sync", label: "Sync history", roles: STAFF },
   { to: "/reports", label: "Reports" },
   { to: "/users", label: "Permissions", roles: ["admin"] },
   { to: "/audit", label: "Audit log", roles: ["admin", "supervisor"] },

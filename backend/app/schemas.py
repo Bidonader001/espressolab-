@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}[A-Za-z0-9]$|^[A-Za-z0-9]$")
 PROTOCOLS = {"tcp", "udp", "push", "agent", "simulator"}
-ROLES = {"admin", "supervisor", "viewer"}
+ROLES = {"admin", "supervisor", "viewer", "hr"}
 
 
 def clean_host(value: str) -> str:
@@ -282,7 +282,7 @@ class UserIn(BaseModel):
     def role_ok(cls, value: str) -> str:
         text = value.strip().lower()
         if text not in ROLES:
-            raise ValueError("Role must be admin, supervisor, or viewer")
+            raise ValueError("Role must be admin, supervisor, viewer, or hr")
         return text
 
 
@@ -298,7 +298,7 @@ class UserUpdate(BaseModel):
             return None
         text = value.strip().lower()
         if text not in ROLES:
-            raise ValueError("Role must be admin, supervisor, or viewer")
+            raise ValueError("Role must be admin, supervisor, viewer, or hr")
         return text
 
 

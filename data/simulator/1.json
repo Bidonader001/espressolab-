@@ -2,22 +2,15 @@
   "label": "SIMULATOR \u2014 not read from ZKTeco hardware",
   "logs": [
     {
-      "user_id": "20",
-      "punched_at": "2026-10-01T09:00:00",
+      "user_id": "80",
+      "punched_at": "2026-10-05T06:30:00",
       "punch": 0,
       "status": 0,
       "uid": 0
     },
     {
-      "user_id": "20",
-      "punched_at": "2026-10-03T09:00:00",
-      "punch": 0,
-      "status": 0,
-      "uid": 0
-    },
-    {
-      "user_id": "20",
-      "punched_at": "2026-10-03T17:00:00",
+      "user_id": "80",
+      "punched_at": "2026-10-05T14:00:00",
       "punch": 1,
       "status": 0,
       "uid": 0
@@ -25,8 +18,8 @@
   ],
   "users": [
     {
-      "user_id": "20",
-      "name": "Iman Incomplete"
+      "user_id": "80",
+      "name": "Dan Dawn"
     }
   ]
 }

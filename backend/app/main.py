@@ -8,11 +8,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 from starlette.middleware.gzip import GZipMiddleware
 
-from app.config import ROOT, cors_origins, is_production, production_problems, scheduler_enabled
+from app.config import ROOT, cors_origins, force_https, https_port, is_production, production_problems, scheduler_enabled
 from app.routers import attendance, auth, catalog, devices, iclock, reports, system
 from app.services.bootstrap import init_db
 from app.services.scheduler import start_scheduler, stop_scheduler
@@ -58,6 +58,22 @@ async def lifespan(_app: FastAPI):
     stop_scheduler()
 
 
+def request_scheme(request) -> str:
+    forwarded = request.headers.get("x-forwarded-proto", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip().lower()
+    return request.url.scheme
+
+
+def https_location(request) -> str:
+    host_header = request.headers.get("host") or request.url.netloc
+    hostname = host_header.split(":")[0]
+    port = https_port()
+    netloc = hostname if port == 443 else f"{hostname}:{port}"
+    query = f"?{request.url.query}" if request.url.query else ""
+    return f"https://{netloc}{request.url.path}{query}"
+
+
 app = FastAPI(title="EspressoLab Attendance", version="1.0.0", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
@@ -71,8 +87,15 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_headers(request, call_next):
+    scheme = request_scheme(request)
+    if force_https() and scheme != "https" and not request.url.path.startswith("/iclock"):
+        return RedirectResponse(https_location(request), status_code=308)
     response = await call_next(request)
-    for key, value in SECURITY_HEADERS.items():
+    headers = dict(SECURITY_HEADERS)
+    if scheme == "https":
+        headers["Content-Security-Policy"] = SECURITY_HEADERS["Content-Security-Policy"] + "; upgrade-insecure-requests"
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    for key, value in headers.items():
         response.headers.setdefault(key, value)
     if request.url.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")

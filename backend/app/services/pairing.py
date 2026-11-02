@@ -1,21 +1,16 @@
-"""Turn a person's raw punches into work sessions. Plain rules, no guessing.
+"""Turn a person's raw punches into one session per day.
 
-Punches are paired in time order. The in/out flag some terminals attach is used only as a hint
-for repeat taps, because it is not reliable on its own: some terminals label punches by the time
-of day, so the flag cannot decide who is arriving and who is leaving.
+The in/out flag on a terminal is not used. A day is the first punch and the last punch.
+Every punch between those two stays stored and is left out of the calculation.
 
 1. Identical timestamps collapse to one punch.
-2. A tap within `debounce_minutes` of the previously kept punch is the same tap recorded twice
-   (these terminals often log one tap two seconds apart). It is ignored for the calculation and
-   stays stored.
-3. A tap carrying the same in/out flag as the previously kept punch, within `retap_minutes` of it,
-   is a person tapping again (two check-ins at 09:05 and 09:07 mean one arrival at 09:05). The
-   later one is ignored for the calculation and stays stored. Without a known flag this rule
-   does nothing.
-4. Walking forward, a punch opens a session and the next punch closes it, provided the gap is at
-   most `max_session_hours`. A longer gap means the closing punch is missing, so the session stays
-   open and the next punch starts a new one. This also stops one forgotten punch from flipping
-   every later pair.
+2. A tap within `debounce_minutes` of the previous punch is the same tap recorded twice.
+   It is ignored for the calculation and stays stored.
+3. On each calendar day the earliest remaining punch is the check-in and the latest is the
+   check-out. A day with only one punch stays open.
+4. When a day has only that check-in, the first punch of the next day closes it if the gap is
+   within `max_session_hours`. That is how a shift that crosses midnight stays one session
+   on the check-in day.
 
 Sessions may cross midnight. Each session belongs to the day of its clock-in.
 """
@@ -29,6 +24,9 @@ IN_STATES = {0, 3, 4}
 OUT_STATES = {1, 2, 5}
 
 Tap = tuple[datetime, int | None]
+
+# A same-flag tap this close is someone tapping the terminal again, not a new arrival or departure.
+REAL_GAP_SECONDS = 10 * 60
 
 
 def direction(state: int | None) -> str | None:
@@ -48,17 +46,34 @@ def _normalise(taps) -> list[Tap]:
     return sorted(first.items(), key=lambda pair: pair[0])
 
 
+def _opposite_later_same_day(items: list[Tap], index: int) -> bool:
+    """True when a later punch today carries the other in/out flag."""
+    stamp, state = items[index]
+    way = direction(state)
+    if way is None:
+        return False
+    for later_stamp, later_state in items[index + 1 :]:
+        if later_stamp.date() != stamp.date():
+            return False
+        later = direction(later_state)
+        if later is not None and later != way:
+            return True
+    return False
+
+
 def collapse_taps(taps, debounce_minutes: float, retap_minutes: float = 0.0) -> list[Tap]:
+    items = _normalise(taps)
     kept: list[Tap] = []
     debounce = max(0.0, float(debounce_minutes)) * 60.0
     retap = max(0.0, float(retap_minutes)) * 60.0
-    for stamp, state in _normalise(taps):
+    for index, (stamp, state) in enumerate(items):
         if kept:
             gap = (stamp - kept[-1][0]).total_seconds()
             if gap <= debounce:
                 continue
             same_way = direction(state) is not None and direction(state) == direction(kept[-1][1])
-            if same_way and gap <= retap:
+            short_repeat = gap <= REAL_GAP_SECONDS
+            if same_way and gap <= retap and (short_repeat or _opposite_later_same_day(items, index)):
                 continue
         kept.append((stamp, state))
     return kept
@@ -86,5 +101,39 @@ def pair_punches(times: list[datetime], max_session_hours: float) -> list[tuple[
 def build_sessions(
     taps, debounce_minutes: float, max_session_hours: float, retap_minutes: float = 0.0
 ) -> list[tuple[datetime, datetime | None]]:
-    kept = [stamp for stamp, _state in collapse_taps(taps, debounce_minutes, retap_minutes)]
-    return pair_punches(kept, max_session_hours)
+    """One session per calendar day: the first punch and the last punch.
+
+    `retap_minutes` is accepted so older callers keep working. Middle punches are discarded
+    either way. `max_session_hours` only decides whether the next day's first punch can close
+    a day that has no other punch.
+    """
+    del retap_minutes
+    kept = collapse_taps(taps, debounce_minutes, 0)
+    by_day: dict = {}
+    for stamp, state in kept:
+        by_day.setdefault(stamp.date(), []).append((stamp, state))
+    days = sorted(by_day)
+    limit = max(0.0, float(max_session_hours)) * 3600.0
+    consumed: set = set()
+    sessions: list[tuple[datetime, datetime | None]] = []
+    for index, day in enumerate(days):
+        punches = [item for item in by_day[day] if item[0] not in consumed]
+        if not punches:
+            continue
+        first = punches[0][0]
+        last = punches[-1][0]
+        if first != last:
+            sessions.append((first, last))
+            continue
+        closed_by_next = None
+        if index + 1 < len(days):
+            nxt = by_day[days[index + 1]][0][0]
+            gap = (nxt - first).total_seconds()
+            if 0 < gap <= limit:
+                closed_by_next = nxt
+        if closed_by_next is not None:
+            sessions.append((first, closed_by_next))
+            consumed.add(closed_by_next)
+        else:
+            sessions.append((first, None))
+    return sessions

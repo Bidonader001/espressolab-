@@ -2,10 +2,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { api, setSession, token, User } from "./api";
 import { Layout } from "./Layout";
-import { AttendancePage } from "./pages/Attendance";
 import { AuditPage } from "./pages/Audit";
 import { BranchesPage } from "./pages/Branches";
-import { DashboardPage } from "./pages/Dashboard";
 import { DevicePage as DeviceDetailPage } from "./pages/Device";
 import { DevicesPage } from "./pages/Devices";
 import { EmployeePage as EmployeeDetailPage } from "./pages/Employee";
@@ -44,7 +42,7 @@ export function App() {
     setSession(body.token);
     const me = await api<{ user: User; must_change_password: boolean; company_name: string }>("/api/v1/auth/me");
     setUser({ user: me.user, mustChange: me.must_change_password, company: me.company_name });
-    navigate("/");
+    navigate(me.user.role === "hr" ? "/reports" : "/employees");
   }
 
   function logout() {
@@ -56,21 +54,21 @@ export function App() {
   if (!ready) return <p className="main">Loading…</p>;
   return (
     <Routes>
-      <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage onSubmit={login} />} />
+      <Route path="/login" element={session ? <Navigate to={session.user.role === "hr" ? "/reports" : "/employees"} replace /> : <LoginPage onSubmit={login} />} />
       <Route element={session ? <Layout session={session} onLogout={logout} /> : <Navigate to="/login" replace />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="attendance" element={<AttendancePage />} />
-        <Route path="employees" element={<EmployeesPage role={session?.user.role || "viewer"} />} />
-        <Route path="employees/:employeeId" element={<EmployeeDetailPage />} />
-        <Route path="branches" element={<BranchesPage role={session?.user.role || "viewer"} />} />
-        <Route path="devices" element={<DevicesPage role={session?.user.role || "viewer"} />} />
-        <Route path="devices/:deviceId" element={<DeviceDetailPage role={session?.user.role || "viewer"} />} />
-        <Route path="sync" element={<SyncPage />} />
-        <Route path="rules" element={<Navigate to="/branches" replace />} />
+        <Route index element={<Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />
+        <Route path="attendance" element={<Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />
+        <Route path="employees" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <EmployeesPage role={session?.user.role || "viewer"} />} />
+        <Route path="employees/:employeeId" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <EmployeeDetailPage />} />
+        <Route path="branches" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <BranchesPage role={session?.user.role || "viewer"} />} />
+        <Route path="devices" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <DevicesPage role={session?.user.role || "viewer"} />} />
+        <Route path="devices/:deviceId" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <DeviceDetailPage role={session?.user.role || "viewer"} />} />
+        <Route path="sync" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <SyncPage />} />
+        <Route path="rules" element={<Navigate to={session?.user.role === "hr" ? "/reports" : "/branches"} replace />} />
         <Route path="reports" element={<ReportsPage />} />
-        <Route path="users" element={session?.user.role === "admin" ? <UsersPage /> : <Navigate to="/" replace />} />
-        <Route path="audit" element={session?.user.role === "viewer" ? <Navigate to="/" replace /> : <AuditPage />} />
-        <Route path="settings" element={session?.user.role === "admin" ? <SettingsPage mustChange={!!session?.mustChange} /> : <Navigate to="/" replace />} />
+        <Route path="users" element={session?.user.role === "admin" ? <UsersPage /> : <Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />
+        <Route path="audit" element={session?.user.role === "admin" || session?.user.role === "supervisor" ? <AuditPage /> : <Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />
+        <Route path="settings" element={session?.user.role === "admin" ? <SettingsPage mustChange={!!session?.mustChange} /> : <Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />
       </Route>
     </Routes>
   );
