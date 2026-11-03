@@ -1,9 +1,16 @@
 {
 	auto_https disable_redirects
 	local_certs
+	default_sni localhost
+	servers {
+		protocols h1 h2
+	}
 }
 
 :443 {
+	tls internal {
+		on_demand
+	}
 	reverse_proxy api:8000
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	encode gzip
