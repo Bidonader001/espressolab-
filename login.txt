@@ -1,0 +1,6 @@
+EspressoLab Attendance
+
+Open: https://127.0.0.1/
+
+Username: admin
+Password: U2VypwpwYwNNzMTQmErQF3hM
