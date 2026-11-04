@@ -21,6 +21,7 @@ export function SettingsPage({ mustChange = false }: { mustChange?: boolean }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
     api<Settings>("/api/v1/settings").then(setSettings).catch((err) => setError(err.message));
@@ -78,12 +79,15 @@ export function SettingsPage({ mustChange = false }: { mustChange?: boolean }) {
       return;
     }
     setError("");
+    setRestoring(true);
     try {
       await api("/api/v1/settings/backup/upload", { method: "POST", body: data });
       setNotice("Backup uploaded. The stored data is back in the system.");
       form.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setRestoring(false);
     }
   }
 
@@ -145,7 +149,7 @@ export function SettingsPage({ mustChange = false }: { mustChange?: boolean }) {
         </div>
         <form className="form-grid" style={{ marginTop: 12 }} onSubmit={restore}>
           <label className="field">Backup file<input name="file" type="file" accept=".json,application/json" required /></label>
-          <button className="btn" type="submit">Upload backup</button>
+          <button className="btn" type="submit" disabled={restoring}>{restoring ? "Restoring…" : "Upload backup"}</button>
         </form>
       </section>
     </>

@@ -23,10 +23,27 @@ timeout /t 5 /nobreak >nul
 goto waitdocker
 
 :compose
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy\write-env.ps1"
+if errorlevel 1 (
+  echo.
+  echo Could not write .env.
+  pause
+  exit /b 1
+)
+set "NEW_ADMIN_PASSWORD="
+if exist "%TEMP%\espressolab-new-admin.txt" set /p NEW_ADMIN_PASSWORD=<"%TEMP%\espressolab-new-admin.txt"
+if defined NEW_ADMIN_PASSWORD (
+  echo.
+  echo First start. Sign in at https://localhost/ as admin.
+  echo Password: %NEW_ADMIN_PASSWORD%
+  echo Change it in Settings after you sign in. It is not shown again.
+  echo.
+  del "%TEMP%\espressolab-new-admin.txt"
+)
 docker compose up --build -d
 if errorlevel 1 (
   echo.
-  echo Docker did not start.
+  echo EspressoLab did not start. The message above is the reason.
   pause
   exit /b 1
 )
@@ -56,4 +73,12 @@ start "" "https://localhost/"
 
 :done
 echo Opened https://localhost/
+if defined NEW_ADMIN_PASSWORD (
+  echo.
+  echo Administrator: admin
+  echo Password: %NEW_ADMIN_PASSWORD%
+  echo.
+  pause
+  exit /b 0
+)
 timeout /t 4 >nul

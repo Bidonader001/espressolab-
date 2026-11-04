@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -521,6 +522,39 @@ def test_backup_file_restores_from_upload(client, auth, monkeypatch, tmp_path):
     assert any(row["employee_id"] == "E9" and row["full_name"] == "Nader" for row in people)
     assert all(row["employee_id"] != "NEW" for row in people)
     assert client.get(f"/api/v1/devices/{device['id']}", headers=auth).json()["has_comm_key"] is True
+
+
+def test_upload_accepts_a_backup_larger_than_one_megabyte(client, auth, monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKUP_PATH", str(tmp_path / "back up.json"))
+    device = _device(client, auth)
+    saved = client.post("/api/v1/settings/backup", headers=auth)
+    assert saved.status_code == 200, saved.text
+    payload = json.loads(open(saved.json()["path"], encoding="utf-8").read())
+    start = datetime(2020, 1, 1, 8, 0, 0)
+    payload["tables"]["punches"] = [
+        {
+            "id": index + 1,
+            "device_id": device["id"],
+            "device_user_id": "1",
+            "punched_at": (start + timedelta(minutes=index)).isoformat(sep=" "),
+            "punch": 0,
+            "status_code": 0,
+            "record_uid": index,
+            "sync_run_id": None,
+            "device_name_snapshot": "Door",
+            "imported_at": "2026-01-01 00:00:00",
+        }
+        for index in range(5000)
+    ]
+    raw = json.dumps(payload).encode("utf-8")
+    assert len(raw) > 1024 * 1024
+    uploaded = client.post(
+        "/api/v1/settings/backup/upload",
+        headers=auth,
+        files={"file": ("back up.json", raw, "application/json")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["tables"]["punches"] == 5000
 
 
 def test_branch_can_be_edited_renamed_and_deleted(client, auth):

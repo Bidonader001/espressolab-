@@ -12,6 +12,9 @@ from app.config import backup_path
 from app.models import Base
 
 KIND = "espressolab-backup"
+# Starlette otherwise refuses any upload larger than 1 MB. A full punch history is already past that.
+MAX_BACKUP_BYTES = 1024 * 1024 * 1024
+_INSERT_BATCH = 500
 
 
 def _encode(value):
@@ -87,8 +90,8 @@ def restore_backup(db: Session, raw: bytes) -> dict[str, int]:
             if not isinstance(row, dict):
                 raise ValueError(f"Backup table {table.name} is invalid.")
             cleaned.append({column.key: _coerce(column, row.get(column.key)) for column in table.columns if column.key in row})
-        if cleaned:
-            db.execute(table.insert(), cleaned)
+        for offset in range(0, len(cleaned), _INSERT_BATCH):
+            db.execute(table.insert(), cleaned[offset : offset + _INSERT_BATCH])
         counts[table.name] = len(cleaned)
     _reset_sequences(db)
     db.flush()

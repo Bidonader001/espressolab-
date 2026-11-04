@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from secrets import token_urlsafe
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ from app.security import encrypt_secret, hash_password
 from app.serialize import audit_out, device_out, sync_out, user_out
 from app.services.attendance import get_settings, rebuild_employees, set_setting
 from app.services.audit import audit
-from app.services.backup import restore_backup, write_backup
+from app.services.backup import MAX_BACKUP_BYTES, restore_backup, write_backup
 from app.services.sync import ingest
 from app.zk.base import NormalizedLog, NormalizedUser, clean_stamp
 
@@ -164,12 +164,16 @@ def backup(db: Session = Depends(get_db), user: User = Depends(require_admin)):
 
 @router.post("/settings/backup/upload")
 async def upload_backup(
-    file: UploadFile,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    raw = await file.read()
-    if len(raw) > 80_000_000:
+    form = await request.form(max_part_size=MAX_BACKUP_BYTES)
+    upload = form.get("file")
+    raw = await upload.read() if upload is not None and hasattr(upload, "read") else b""
+    if not raw:
+        raise HTTPException(status_code=400, detail="Choose the back up file first.")
+    if len(raw) > MAX_BACKUP_BYTES:
         raise HTTPException(status_code=413, detail="Backup file is too large")
     actor = user.username
     try:
@@ -177,7 +181,7 @@ async def upload_backup(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    audit(db, actor, "restore", "database", "", f"Uploaded {file.filename or 'back up.json'}")
+    audit(db, actor, "restore", "database", "", f"Uploaded {getattr(upload, 'filename', None) or 'back up.json'}")
     db.commit()
     return {"ok": True, "tables": counts}
 
