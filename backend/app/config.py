@@ -91,6 +91,14 @@ def cert_dir() -> Path:
     return DATA_DIR / "certs"
 
 
+def backup_path() -> Path:
+    """The one backup file, replaced once a day. Upload this file to restore."""
+    raw = os.environ.get("BACKUP_PATH", "")
+    if raw.strip():
+        return Path(raw.strip())
+    return ROOT / "back up" / "back up.json"
+
+
 KNOWN_DEFAULT_PASSWORDS = {"change-me-now", "ChangeMe-EspressoLab-2026"}
 KNOWN_DEFAULT_SECRETS = {"espressolab-dev-secret-change-me", "change-me", ""}
 

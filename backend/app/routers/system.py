@@ -2,25 +2,21 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 from secrets import token_urlsafe
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import BACKUP_DIR
-from app.database import sqlite_file
 from app.deps import current_user, get_db, require_admin, require_agent, require_writer
-from app.models import AuditLog, Branch, Device, Employee, Punch, Setting, User
+from app.models import AuditLog, Branch, Device, Employee, Setting, User
 from app.schemas import AgentIngest, SettingsIn, UserIn, UserUpdate
 from app.security import encrypt_secret, hash_password
 from app.serialize import audit_out, device_out, sync_out, user_out
 from app.services.attendance import get_settings, rebuild_employees, set_setting
 from app.services.audit import audit
+from app.services.backup import restore_backup, write_backup
 from app.services.sync import ingest
 from app.zk.base import NormalizedLog, NormalizedUser, clean_stamp
 
@@ -160,52 +156,30 @@ def rotate_token(db: Session = Depends(get_db), user: User = Depends(require_adm
 
 @router.post("/settings/backup")
 def backup(db: Session = Depends(get_db), user: User = Depends(require_admin)):
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    copied = ""
-    source = sqlite_file()
-    if source and Path(source).exists():
-        dest = BACKUP_DIR / f"espressolab-{stamp}.db"
-        src = sqlite3.connect(source)
-        dst = sqlite3.connect(dest)
-        try:
-            src.backup(dst)
-        finally:
-            dst.close()
-            src.close()
-        copied = str(dest)
-    snapshot = {
-        "created_at": stamp,
-        "note": "No passwords or device communication keys are included.",
-        "employees": [
-            {
-                "employee_id": row.employee_id,
-                "full_name": row.full_name,
-                "department": row.department,
-                "branch_id": row.branch_id,
-                "employment_status": row.employment_status,
-            }
-            for row in db.scalars(select(Employee)).all()
-        ],
-        "devices": [
-            {"id": row.id, "name": row.name, "host": row.host, "port": row.port, "protocol": row.protocol, "branch_id": row.branch_id}
-            for row in db.scalars(select(Device)).all()
-        ],
-        "punches": [
-            {
-                "device_id": row.device_id,
-                "device_user_id": row.device_user_id,
-                "punched_at": row.punched_at.isoformat(sep=" "),
-                "punch": row.punch,
-            }
-            for row in db.scalars(select(Punch)).all()
-        ],
-    }
-    json_path = BACKUP_DIR / f"espressolab-{stamp}.json"
-    json_path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
-    audit(db, user, "backup", "database", "", json_path.name)
+    path = write_backup(db, force=True)
+    audit(db, user, "backup", "database", "", path.name)
     db.commit()
-    return {"ok": True, "sqlite": copied, "json": str(json_path)}
+    return {"ok": True, "path": str(path), "file": path.name}
+
+
+@router.post("/settings/backup/upload")
+async def upload_backup(
+    file: UploadFile,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    raw = await file.read()
+    if len(raw) > 80_000_000:
+        raise HTTPException(status_code=413, detail="Backup file is too large")
+    actor = user.username
+    try:
+        counts = restore_backup(db, raw)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    audit(db, actor, "restore", "database", "", f"Uploaded {file.filename or 'back up.json'}")
+    db.commit()
+    return {"ok": True, "tables": counts}
 
 
 @router.get("/agent/devices")

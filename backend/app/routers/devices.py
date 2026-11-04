@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.config import allow_simulator
-from app.deps import get_db, require_reader, require_writer
+from app.deps import get_db, require_reader, require_sync, require_sync_status, require_writer
 from app.models import AttendanceSession, Branch, Device, DeviceUser, Employee, LeaveEntry, Punch, SyncRun, User
 from app.schemas import DeviceIn, DeviceUpdate, MapIn, SimulatorIn
 from app.security import encrypt_secret
@@ -176,7 +176,7 @@ def sync_device(
     device_id: int,
     wait: int = 0,
     db: Session = Depends(get_db),
-    user: User = Depends(require_writer),
+    user: User = Depends(require_sync),
 ):
     _device(db, device_id)
     db.commit()
@@ -193,16 +193,25 @@ def sync_device(
 
 
 @router.post("/devices/sync-all")
-def sync_all(db: Session = Depends(get_db), user: User = Depends(require_writer)):
+def sync_all(db: Session = Depends(get_db), user: User = Depends(require_sync)):
+    devices = db.scalars(select(Device)).all()
     ids = []
-    for device in db.scalars(select(Device).where(Device.status == "active", Device.protocol.in_(("tcp", "udp", "simulator")))).all():
+    for device in devices:
+        if device.status != "active" or device.protocol not in {"tcp", "udp", "simulator"}:
+            continue
         try:
             ids.append(start_sync(device.id, "manual", background=True))
         except ValueError:
             continue
     audit(db, user, "sync_all", "device", "", f"{len(ids)} devices")
     db.commit()
-    return {"runs": ids}
+    if ids:
+        message = ""
+    elif not devices:
+        message = "No machines are registered."
+    else:
+        message = "No machine can be synced. Only TCP, UDP, and simulator terminals are read from the server."
+    return {"runs": ids, "message": message}
 
 
 @router.get("/devices/{device_id}/punches")
@@ -325,7 +334,7 @@ def list_sync_runs(
 
 
 @router.get("/sync-runs/{run_id}")
-def get_sync_run(run_id: int, db: Session = Depends(get_db), _: User = Depends(require_reader)):
+def get_sync_run(run_id: int, db: Session = Depends(get_db), _: User = Depends(require_sync_status)):
     row = db.get(SyncRun, run_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Sync run not found")

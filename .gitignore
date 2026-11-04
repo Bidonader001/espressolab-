@@ -6,6 +6,7 @@ __pycache__/
 data/*.db
 data/*.db-*
 data/backups/
+back up/
 data/certs/
 frontend/node_modules/
 frontend/dist/

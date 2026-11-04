@@ -23,12 +23,19 @@ type Preview = {
 const PAGE_SIZE = 100;
 const slug = (value: string) => value.toLowerCase().replace(/\s+/g, "");
 
-export function ReportsPage() {
+type SyncRun = { id: number; status: string; message: string; error_message: string; device_name: string };
+
+const DONE = new Set(["success", "partial", "error"]);
+
+export function ReportsPage({ role = "viewer" }: { role?: string }) {
+  const canSync = role === "hr";
   const [meta, setMeta] = useState<Meta | null>(null);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState("");
   const [pdfUrl, setPdfUrl] = useState("");
   const params = useRef<Record<string, string>>({});
   const formRef = useRef<HTMLFormElement>(null);
@@ -93,6 +100,41 @@ export function ReportsPage() {
     }
   }
 
+  async function syncNow() {
+    setError("");
+    setSyncNote("");
+    setSyncing(true);
+    try {
+      const started = await api<{ runs: number[]; message?: string }>("/api/v1/devices/sync-all", { method: "POST" });
+      if (!started.runs.length) {
+        setError(started.message || "No machine has been synced.");
+        return;
+      }
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const runs = await Promise.all(started.runs.map((id) => api<SyncRun>(`/api/v1/sync-runs/${id}`)));
+        const finished = runs.filter((run) => DONE.has(run.status));
+        setSyncNote(`Syncing ${finished.length} of ${runs.length}…`);
+        if (finished.length !== runs.length) continue;
+        const failed = runs.filter((run) => run.status === "error");
+        if (failed.length) {
+          setSyncNote("");
+          setError(failed.map((run) => `${run.device_name || "Terminal"}: ${run.error_message || run.message || "Sync failed"}`).join(" "));
+        } else {
+          setSyncNote("Sync finished. Preview or download again to include the new punches.");
+        }
+        return;
+      }
+      setSyncNote("");
+      setError("Sync is still running. Preview the report again in a minute.");
+    } catch (err) {
+      setSyncNote("");
+      setError(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function exportFile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -109,7 +151,11 @@ export function ReportsPage() {
 
   return (
     <>
-      <div className="top"><div><h1>Reports</h1><p className="lede">{meta?.hours_note} Use Preview to check the rows on screen before you download. The download uses people read from the attendance machines and the punches stored on those machines.</p></div></div>
+      <div className="top">
+        <div><h1>Reports</h1><p className="lede">{meta?.hours_note} Use Preview to check the rows on screen before you download. The download uses people read from the attendance machines and the punches stored on those machines.</p></div>
+        {canSync ? <button className="btn" type="button" disabled={syncing} onClick={syncNow}>{syncing ? "Syncing…" : "Sync now"}</button> : null}
+      </div>
+      {syncNote ? <p className="banner">{syncNote}</p> : null}
       {meta?.omitted?.length ? <p className="banner">Not in these files: {meta.omitted.join(", ")}.</p> : null}
       <form id="export-form" ref={formRef} className="panel form-grid" onSubmit={exportFile}>
         <label className="field">Report

@@ -34,6 +34,20 @@ def test_logo_file_is_shipped_with_the_backend():
     assert abs(branding.LOGO_RATIO - 85 / 267) < 0.001
 
 
+def _pdf_text(payload: bytes) -> str:
+    pymupdf = pytest.importorskip("pymupdf", reason="PDF text extraction needs PyMuPDF")
+    doc = pymupdf.open(stream=payload, filetype="pdf")
+    return "\n".join(page.get_text() for page in doc)
+
+
+def test_pdfs_credit_codai_and_it_department(client, auth, with_data):
+    export = client.get("/api/v1/exports", headers=auth, params={**RANGE, "report": "monthly", "format": "pdf"})
+    session = client.get("/api/v1/reports/pdf", headers=auth, params={"work_date": "2026-10-01", "period": "daily"})
+    assert export.status_code == 200 and session.status_code == 200
+    for payload in (export.content, session.content):
+        assert branding.PDF_CREDIT in _pdf_text(payload)
+
+
 @pytest.mark.parametrize("report", ["monthly", "daily", "late", "absences", "hours", "employees"])
 def test_export_pdfs_and_workbooks_carry_the_logo(client, auth, with_data, report):
     pdf = client.get("/api/v1/exports", headers=auth, params={**RANGE, "report": report, "format": "pdf"})

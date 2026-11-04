@@ -24,7 +24,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.branding import add_excel_logo, pdf_logo
+from app.branding import PDF_CREDIT, add_excel_logo, pdf_logo
 from app.time_utils import hours_between, parse_working_days
 
 MAX_DAYS = 366
@@ -1063,7 +1063,7 @@ def _pdf(data: dict, cols: list[str]) -> bytes:
         leftMargin=24,
         rightMargin=24,
         topMargin=28,
-        bottomMargin=32,
+        bottomMargin=42,
     )
     styles = getSampleStyleSheet()
     title = ParagraphStyle("elTitle", parent=styles["Title"], fontName=font, textColor=PDF_INK, fontSize=18)
@@ -1082,8 +1082,10 @@ def _pdf(data: dict, cols: list[str]) -> bytes:
         canvas.saveState()
         canvas.setFillColor(PDF_INK)
         canvas.setFont(font, 8)
-        canvas.drawString(24, 16, f"EspressoLab Attendance · {data['generated_at'].replace('T', ' ')}")
-        canvas.drawRightString(A4[0] - 24, 16, f"Page {doc_.page}")
+        canvas.drawString(24, 26, f"EspressoLab Attendance · {data['generated_at'].replace('T', ' ')}")
+        canvas.drawRightString(A4[0] - 24, 26, f"Page {doc_.page}")
+        canvas.setFont(font, 7)
+        canvas.drawCentredString(A4[0] / 2, 12, PDF_CREDIT)
         canvas.restoreState()
 
     logo = pdf_logo(150)

@@ -61,10 +61,29 @@ export function SettingsPage({ mustChange = false }: { mustChange?: boolean }) {
   async function backup() {
     setError("");
     try {
-      const body = await api<{ sqlite: string; json: string }>("/api/v1/settings/backup", { method: "POST" });
-      setNotice(`Backup written. Database: ${body.sqlite || "not a SQLite file"}. Snapshot: ${body.json}`);
+      const body = await api<{ file: string; path: string }>("/api/v1/settings/backup", { method: "POST" });
+      setNotice(`Backup written to back up/${body.file}. Copy that file off this computer.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Backup failed");
+    }
+  }
+
+  async function restore(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const file = data.get("file");
+    if (!(file instanceof File) || !file.size) {
+      setError("Choose the back up file first.");
+      return;
+    }
+    setError("");
+    try {
+      await api("/api/v1/settings/backup/upload", { method: "POST", body: data });
+      setNotice("Backup uploaded. The stored data is back in the system.");
+      form.reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
     }
   }
 
@@ -116,8 +135,18 @@ export function SettingsPage({ mustChange = false }: { mustChange?: boolean }) {
         <code>{settings.agent_token}</code>
         <div className="row-actions" style={{ marginTop: 12 }}>
           <button className="btn ghost" type="button" onClick={() => api<{ agent_token: string }>("/api/v1/settings/rotate-agent-token", { method: "POST" }).then((body) => setSettings({ ...settings, agent_token: body.agent_token }))}>Rotate token</button>
-          <button className="btn ghost" type="button" onClick={backup}>Back up database</button>
         </div>
+      </section>
+      <section className="panel" style={{ marginTop: 14 }}>
+        <h2>Backup</h2>
+        <p>The file <code>back up/back up.json</code> is rewritten once a day. Copy it to another disk. Upload that same file here to put the data back.</p>
+        <div className="row-actions" style={{ marginTop: 12 }}>
+          <button className="btn ghost" type="button" onClick={backup}>Back up now</button>
+        </div>
+        <form className="form-grid" style={{ marginTop: 12 }} onSubmit={restore}>
+          <label className="field">Backup file<input name="file" type="file" accept=".json,application/json" required /></label>
+          <button className="btn" type="submit">Upload backup</button>
+        </form>
       </section>
     </>
   );

@@ -31,7 +31,7 @@ export function UsersPage() {
 
   return (
     <>
-      <div className="top"><div><h1>Permissions</h1><p className="lede">Viewers can read. HR can preview and download reports only. Supervisors can maintain attendance data. Administrators manage users and settings.</p></div></div>
+      <div className="top"><div><h1>Permissions</h1><p className="lede">Viewers can read. HR can preview and download reports, and sync the attendance machines. Supervisors can maintain attendance data. Administrators manage users and settings.</p></div></div>
       {error ? <p className="error">{error}</p> : null}
       <section className="panel">
         <table>

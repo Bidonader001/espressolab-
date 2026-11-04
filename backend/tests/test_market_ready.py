@@ -1,10 +1,8 @@
-"""Behavior added for production use: names, incremental recalculation, scheduling, safety checks."""
+"""Behavior added for production use: names, incremental recalculation, backups, safety checks."""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 
@@ -85,23 +83,11 @@ def test_sync_recalculates_only_people_with_new_punches(client, auth, monkeypatc
     assert not any(rebuilt), "a sync with nothing new must not recalculate anyone"
 
 
-def test_failing_terminal_is_retried_slowly():
-    from app.services.scheduler import FAILURE_BACKOFF_MINUTES, is_due
+def test_scheduler_does_not_sync_devices():
+    import app.services.scheduler as scheduler
 
-    now = datetime(2026, 10, 28, 12, 0, 0)
-
-    def device(**kwargs):
-        base = dict(sync_interval_minutes=2, last_sync_at=None, last_test_at=None, last_sync_status="")
-        base.update(kwargs)
-        return SimpleNamespace(**base)
-
-    assert is_due(device(), now)
-    assert not is_due(device(last_sync_at=now - timedelta(minutes=1), last_sync_status="success"), now)
-    assert is_due(device(last_sync_at=now - timedelta(minutes=3), last_sync_status="success"), now)
-    failed = device(last_sync_at=now - timedelta(days=2), last_test_at=now - timedelta(minutes=3), last_sync_status="error")
-    assert not is_due(failed, now), "an attempt three minutes ago must hold back the next retry"
-    failed.last_test_at = now - timedelta(minutes=FAILURE_BACKOFF_MINUTES + 1)
-    assert is_due(failed, now)
+    assert not hasattr(scheduler, "is_due")
+    assert "start_sync" not in scheduler.__dict__
 
 
 def test_production_refuses_published_defaults(monkeypatch):

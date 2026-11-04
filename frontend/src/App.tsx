@@ -65,7 +65,7 @@ export function App() {
         <Route path="devices/:deviceId" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <DeviceDetailPage role={session?.user.role || "viewer"} />} />
         <Route path="sync" element={session?.user.role === "hr" ? <Navigate to="/reports" replace /> : <SyncPage />} />
         <Route path="rules" element={<Navigate to={session?.user.role === "hr" ? "/reports" : "/branches"} replace />} />
-        <Route path="reports" element={<ReportsPage />} />
+        <Route path="reports" element={<ReportsPage role={session?.user.role || "viewer"} />} />
         <Route path="users" element={session?.user.role === "admin" ? <UsersPage /> : <Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />
         <Route path="audit" element={session?.user.role === "admin" || session?.user.role === "supervisor" ? <AuditPage /> : <Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />
         <Route path="settings" element={session?.user.role === "admin" ? <SettingsPage mustChange={!!session?.mustChange} /> : <Navigate to={session?.user.role === "hr" ? "/reports" : "/employees"} replace />} />

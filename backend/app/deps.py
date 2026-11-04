@@ -52,6 +52,20 @@ def require_writer(user: User = Depends(current_user)) -> User:
     return user
 
 
+def require_sync(user: User = Depends(current_user)) -> User:
+    """Start a device sync. HR can refresh terminals before downloading a report."""
+    if user.role not in {"admin", "supervisor", "hr"}:
+        raise HTTPException(status_code=403, detail="You do not have permission for this action")
+    return user
+
+
+def require_sync_status(user: User = Depends(current_user)) -> User:
+    """Read one sync run, including HR checking the sync they just started."""
+    if user.role not in {"admin", "supervisor", "viewer", "hr"}:
+        raise HTTPException(status_code=403, detail="You do not have permission for this action")
+    return user
+
+
 def require_admin(user: User = Depends(current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="You do not have permission for this action")

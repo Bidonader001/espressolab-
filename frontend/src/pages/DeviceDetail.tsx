@@ -137,7 +137,7 @@ export function DeviceDetailPage({ role }: { role: string }) {
       <div className="cards">
         <article className="card"><div className="k">Connection</div><div className="v" style={{ fontSize: 28 }}><span className={`badge ${device.connection_status}`}>{device.connection_status}</span></div></article>
         <article className="card"><div className="k">Last test</div><div className="s">{device.last_test_at || "Never"}</div><div className="s">{device.last_error || "No error stored."}</div></article>
-        <article className="card"><div className="k">Last sync</div><div className="s">{device.last_sync_at || "Never"}</div><div className="s">Every {device.sync_interval_minutes} min · timeout {device.timeout_seconds}s · key {device.has_comm_key ? "set" : "none"}</div></article>
+        <article className="card"><div className="k">Last sync</div><div className="s">{device.last_sync_at || "Never"}</div><div className="s">Manual only · timeout {device.timeout_seconds}s · key {device.has_comm_key ? "set" : "none"}</div></article>
         <article className="card"><div className="k">Serial</div><div className="s">{device.serial_number || "—"}</div></article>
       </div>
       {run ? <section className="panel" style={{ marginTop: 14 }}><h2>Sync progress</h2><p><span className={`badge ${run.status}`}>{run.status}</span> {run.message}</p>{run.error_message ? <p className="error">{run.error_message}</p> : null}<p>Inserted {run.records_inserted}, duplicates skipped {run.records_skipped}.</p></section> : null}

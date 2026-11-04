@@ -14,7 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.branding import add_excel_logo, pdf_logo
+from app.branding import PDF_CREDIT, add_excel_logo, pdf_logo
 from app.time_utils import format_hours, hours_status, period_range
 
 ORANGE = PatternFill("solid", fgColor="3B82F6")
@@ -224,9 +224,16 @@ def build_pdf(rows: list[dict], summary: dict, start: str, end: str, kind: str) 
         leftMargin=28,
         rightMargin=28,
         topMargin=28,
-        bottomMargin=28,
+        bottomMargin=36,
     )
     styles = getSampleStyleSheet()
+
+    def on_page(canvas, doc_):
+        canvas.saveState()
+        canvas.setFillColor(PDF_INK)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawCentredString(A4[0] / 2, 14, PDF_CREDIT)
+        canvas.restoreState()
     logo = pdf_logo(150)
     story = [
         logo if logo is not None else Paragraph("EspressoLab Attendance", styles["Title"]),
@@ -295,5 +302,5 @@ def build_pdf(rows: list[dict], summary: dict, start: str, end: str, kind: str) 
             style_cmds.append(("BACKGROUND", (5, index), (5, index), pdf_fill))
     table.setStyle(TableStyle(style_cmds))
     story.append(table)
-    doc.build(story)
+    doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
     return buf.getvalue()

@@ -59,7 +59,7 @@ What a sync does:
 4. Recalculates attendance only for people who received new punches. A sync with nothing new recalculates no one.
 5. Records the run (fetched, inserted, skipped, errors) in Sync history. A failed run keeps everything imported before it and shows the real error.
 
-The scheduler starts a sync once the device interval has passed since the last attempt. A terminal that keeps failing is retried every ten minutes at most.
+Sync runs only when someone presses Sync now. Terminals set to push still send punches to `/iclock` on their own.
 
 User ids are matched by their text across terminals. Two different people who share the id `12` on two terminals become one employee. Give each branch its own id range, or map one of them to a different employee on the device page.
 
@@ -130,11 +130,11 @@ The compose file starts PostgreSQL (not published on the host), the API on an in
 
 Monitoring: `GET /api/v1/health` reports the process is up. `GET /api/v1/health/ready` also checks the database and returns 503 when it cannot answer.
 
-Backups: Settings has a backup action. With SQLite it copies the database file, which includes password hashes, so store it like a secret. With PostgreSQL use `pg_dump` on a schedule.
+Backups: the server rewrites `back up/back up.json` once a day. Copy that file off the machine. Settings can upload the same file to put the data back. It includes password hashes and encrypted device keys, so store it like a secret.
 
 ### First-day checklist
 
-1. Sign in, change the administrator password, and create named accounts. Roles are admin, supervisor (operations), viewer (read and export), and hr (preview and download reports only).
+1. Sign in, change the administrator password, and create named accounts. Roles are admin, supervisor (operations), viewer (read and export), and hr (preview and download reports, and sync the attendance machines).
 2. Add one terminal, press Test connection, then Sync now. Confirm the punch count and date range on its device page match the terminal's own report.
 3. Check Branches: working days, grace minutes, each branch's shifts, holidays and approved leave (there is no separate Rules and shifts page; the old address redirects here). Changing a rule recalculates sessions and keeps every stored punch.
 4. Download one monthly export and compare a few employees with the terminal.

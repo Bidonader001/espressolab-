@@ -7,6 +7,7 @@ from pathlib import Path
 
 LOGO_PATH = Path(__file__).resolve().parent / "assets" / "logo.png"
 LOGO_RATIO = 85 / 267  # height / width of assets/logo.png
+PDF_CREDIT = "Developed by Codai and Espresso Lab IT Department"
 
 log = logging.getLogger("espressolab")
 

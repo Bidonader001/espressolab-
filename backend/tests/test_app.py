@@ -60,6 +60,19 @@ def _device(client, auth, name="Front door", host="lab-sim.local", protocol="sim
     return body
 
 
+def test_sync_all_says_when_no_machine(client, auth):
+    empty = client.post("/api/v1/devices/sync-all", headers=auth)
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["runs"] == []
+    assert empty.json()["message"] == "No machines are registered."
+
+    _device(client, auth, name="Store agent", host="agent.local", protocol="agent")
+    skipped = client.post("/api/v1/devices/sync-all", headers=auth)
+    assert skipped.status_code == 200, skipped.text
+    assert skipped.json()["runs"] == []
+    assert "No machine can be synced" in skipped.json()["message"]
+
+
 def test_health_and_login(client):
     assert client.get("/api/v1/health").json()["ai"] is False
     denied = client.get("/api/v1/employees")
@@ -84,6 +97,7 @@ def test_viewer_cannot_write(client, auth):
     assert blocked.status_code == 403
     assert client.get("/api/v1/attendance", headers=viewer).status_code == 200
     assert client.get("/api/v1/users", headers=viewer).status_code == 403
+    assert client.post("/api/v1/devices/sync-all", headers=viewer).status_code == 403
 
 
 def test_hr_can_export_reports_only(client, auth):
@@ -111,6 +125,14 @@ def test_hr_can_export_reports_only(client, auth):
     assert client.get("/api/v1/attendance", headers=hr).status_code == 403
     assert client.get("/api/v1/employees", headers=hr).status_code == 403
     assert client.get("/api/v1/devices", headers=hr).status_code == 403
+    device = _device(client, auth, name="HR sync", host="hr-sync.local")
+    synced = client.post(f"/api/v1/devices/{device['id']}/sync?wait=1", headers=hr)
+    assert synced.status_code == 200, synced.text
+    run_id = synced.json()["run"]["id"]
+    assert client.get(f"/api/v1/sync-runs/{run_id}", headers=hr).status_code == 200
+    assert client.post("/api/v1/devices/sync-all", headers=hr).status_code == 200
+    assert client.post(f"/api/v1/devices/{device['id']}/test", headers=hr).status_code == 403
+    assert client.get("/api/v1/sync-runs", headers=hr).status_code == 403
     assert client.get("/api/v1/dashboard", headers=hr).status_code == 403
     assert client.get("/api/v1/branches", headers=hr).status_code == 403
     assert client.get("/api/v1/users", headers=hr).status_code == 403
@@ -457,18 +479,48 @@ def test_deleted_device_attendance_leaves_the_export(client, auth):
     assert all(row["employee_id"] != "77" for row in people)
 
 
-def test_backup_omits_secrets(client, auth, tmp_path):
+def test_backup_file_restores_from_upload(client, auth, monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKUP_PATH", str(tmp_path / "back up.json"))
     device = _device(client, auth)
     client.patch(f"/api/v1/devices/{device['id']}", headers=auth, json={"comm_key": "12345"})
     saved = client.get(f"/api/v1/devices/{device['id']}", headers=auth).json()
     assert saved["has_comm_key"] is True
     assert "12345" not in str(saved)
+    created = client.post("/api/v1/employees", headers=auth, json={"employee_id": "E9", "full_name": "Nader"})
+    assert created.status_code == 200, created.text
     backup = client.post("/api/v1/settings/backup", headers=auth)
     assert backup.status_code == 200, backup.text
-    payload = backup.json()["json"]
-    text = open(payload, encoding="utf-8").read()
+    text = open(backup.json()["path"], encoding="utf-8").read()
     assert "12345" not in text
-    assert "password_hash" not in text
+    assert "espressolab-backup" in text
+    assert backup.json()["file"] == "back up.json"
+    extra = client.post("/api/v1/employees", headers=auth, json={"employee_id": "NEW", "full_name": "After backup"})
+    assert extra.status_code == 200, extra.text
+    from app.database import get_session
+    from app.services.backup import write_backup
+
+    db = get_session()
+    try:
+        write_backup(db, force=False)
+    finally:
+        db.close()
+    assert open(backup.json()["path"], encoding="utf-8").read() == text
+    refused = client.post(
+        "/api/v1/settings/backup/upload",
+        headers=auth,
+        files={"file": ("notes.txt", b"not a backup", "application/json")},
+    )
+    assert refused.status_code == 400
+    uploaded = client.post(
+        "/api/v1/settings/backup/upload",
+        headers=auth,
+        files={"file": ("back up.json", text.encode("utf-8"), "application/json")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    people = client.get("/api/v1/employees", headers=auth).json()["items"]
+    assert any(row["employee_id"] == "E9" and row["full_name"] == "Nader" for row in people)
+    assert all(row["employee_id"] != "NEW" for row in people)
+    assert client.get(f"/api/v1/devices/{device['id']}", headers=auth).json()["has_comm_key"] is True
 
 
 def test_branch_can_be_edited_renamed_and_deleted(client, auth):
